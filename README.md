@@ -94,6 +94,20 @@ Each step folder contains its `.m` scripts and a **README.md** describing what t
 
 ---
 
+## Publish to GitHub
+
+1. Create a **new repository** on GitHub (e.g. `opioidaddiction-matlab`) — do **not** add a README or .gitignore (this repo already has them).
+2. In this folder, add the remote and push:
+   ```bash
+   cd path/to/opioidaddiction-matlab
+   git remote add origin https://github.com/YOUR_USERNAME/opioidaddiction-matlab.git
+   git branch -M main
+   git push -u origin main
+   ```
+   Replace `YOUR_USERNAME` with your GitHub username (e.g. `limserenahansol`). Use a [Personal Access Token](https://github.com/settings/tokens) as password if prompted.
+
+---
+
 ## License
 
 See [LICENSE](LICENSE) if present.
