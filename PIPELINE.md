@@ -48,22 +48,16 @@ flowchart TB
 
 ---
 
-## Advanced pipeline (Step 07): plan → MATLAB
+## Advanced pipeline (Step 07)
 
-| Plan / Module | MATLAB implementation |
-|---------------|------------------------|
-| Module 5 (Feature QC) | `analyze_modules_5_to_11` |
-| Module 6 (GLMM/LME) | `analyze_modules_5_to_11` |
-| Module 7 (PCA, clustering, EFA) | `analyze_modules_5_to_11` |
-| Module 8 (Event-locked) | `analyze_modules_5_to_11` |
-| Module 9 (Cumulative fit) | `analyze_modules_5_to_11` |
-| Module 10 (Cross-modal) | `analyze_modules_5_to_11` |
-| Module 11 (RL model) | `analyze_modules_5_to_11` |
-| Module 12 (Predictive) | `analyze_modules_5_to_11` / `analyze_modules_5_to_12` |
-| Straub tail | `compute_straub_tail_only_v1` |
-| Dashboard / preprocessing | `analyze_passive_active_dashboard_dec2` |
-| Addiction score / EFA | `analyze_addiction_score_efa_*.m` |
-| Longitudinal QC | `make_longitudinal_QC_and_requested_analyses_NEWCOHORT_20260203_cursor.m` |
-| Rasters | `plotLickAndBoutRasters_SelectedDays.m` |
+Scripts in **step07_advanced/** are often triplicated/optimized variants — **run one per purpose.** See step07_advanced/README.md for the full table.
 
-Add these scripts to **step07_advanced/** as they are implemented. Complementary EFA/decoder/cross-generalization exist in the Python repo.
+| Purpose | Run **one of** |
+|---------|-----------------|
+| Modules 5–12 | `analyze_modules_5_to_11.m`, `analyze_modules_5_to_11_new.m`, or `analyze_advanced_pipeline.m` |
+| Straub tail | `compute_straub_tail_only_v1.m`, `compute_straub_nonmoving_only_v1.m` |
+| Dashboard | `analyze_passive_active_dashboard_dec2.m`, `analyze_passive_active_dashboard_dec.m` |
+| Addiction score / EFA | one of `analyze_addiction_score_efa_dec*.m`, `_both.m`, `_mousefit.m` |
+| Longitudinal QC | `make_longitudinal_QC_and_requested_analyses_NEWCOHORT_20260203_cursor.m` or other QC variant |
+
+Complementary EFA/decoder/cross-generalization in the Python repo.

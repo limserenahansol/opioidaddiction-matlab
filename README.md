@@ -1,10 +1,26 @@
 # Morphine PR Behavioral Pipeline (MATLAB)
 
-MATLAB pipeline for the morphine progressive-ratio (PR) self-administration experiment. **First** do all per-session work (pupil + manual assays). **Then** build one longitudinal folder (all mice × all days). **After that**, run downstream analyses: motivation, licking, reward, pupil, delta, statistics, plots, pharmacology, and the advanced pipeline (EFA, modules 5–12).
+MATLAB pipeline for the **morphine progressive-ratio (PR)** self-administration experiment: from per-session pupil and assay data to one longitudinal table (all mice × all days), then to motivation, licking, QC, visualization, and advanced analyses (EFA, Straub, addiction score).
+
+**New here?** Three phases: (1) Run per-session steps 01a and 01b for every session. (2) Run step 02 once to build the longitudinal CSV. (3) Run steps 03–07 in any order. In each step folder, pick **one** script per purpose (see the "run one of" table in each README).
 
 ---
 
-## Pipeline schematic
+## Pipeline at a glance
+
+![Pipeline schematic: Phase 1 (per-session) → Phase 2 (build longitudinal) → Phase 3 (downstream)](pipeline_schematic.png)
+
+| Phase | Steps | What you do |
+|-------|--------|-------------|
+| **1. Per-session** | 01a Pupil, 01b Manual assays | Run for **every** session/video (pupil tracking + alignment; manual scoring for TST, HOT, Straub). |
+| **2. Build whole file** | 02 Build longitudinal | Run **once** after all sessions: creates one folder with **ALL_mice_longitudinal.csv** (all mice × all days). |
+| **3. Downstream** | 03–07 | Run **in any order**; each step reads the latest longitudinal CSV. Pick **one script per purpose** (see each step’s README). |
+
+**Run order:** Phase 1 (all sessions) → Phase 2 (once) → Phase 3 (any order).
+
+---
+
+## Pipeline schematic (Mermaid)
 
 ```mermaid
 flowchart LR
@@ -32,8 +48,6 @@ flowchart LR
     CSV --> S06
     CSV --> S07
 ```
-
-**Run order:** Do **Step 01a (pupil)** and **Step 01b (manual assays)** for every session. Then run **Step 02** to create **longitudinal_outputs** (one folder, all mice × all days). Then run **Steps 03–07** (downstream) in any order; they all use the latest `run_*/ALL_mice_longitudinal.csv`.
 
 ---
 
@@ -74,25 +88,19 @@ Each step folder has a **README.md** and its `.m` scripts.
 
 ---
 
-## Advanced pipeline (Step 07): plan → MATLAB
+## Advanced pipeline (Step 07)
 
-| Plan / Module | MATLAB implementation |
-|---------------|------------------------|
-| Module 5 (Feature QC) | `analyze_modules_5_to_11` |
-| Module 6 (GLMM/LME) | `analyze_modules_5_to_11` |
-| Module 7 (PCA, clustering, EFA) | `analyze_modules_5_to_11` |
-| Module 8 (Event-locked) | `analyze_modules_5_to_11` |
-| Module 9 (Cumulative fit) | `analyze_modules_5_to_11` |
-| Module 10 (Cross-modal) | `analyze_modules_5_to_11` |
-| Module 11 (RL model) | `analyze_modules_5_to_11` |
-| Module 12 (Predictive) | `analyze_modules_5_to_11` / `analyze_modules_5_to_12` |
-| Straub tail | `compute_straub_tail_only_v1` |
-| Dashboard / preprocessing | `analyze_passive_active_dashboard_dec2` |
-| Addiction score / EFA | `analyze_addiction_score_efa_*.m` |
-| Longitudinal QC | `make_longitudinal_QC_and_requested_analyses_NEWCOHORT_20260203_cursor.m` |
-| Rasters | `plotLickAndBoutRasters_SelectedDays.m` |
+Many scripts in **step07_advanced/** are variants (A, A′, A″); **run one per purpose.** See [step07_advanced/README.md](step07_advanced/README.md) for the "run one of" table. Summary:
 
-Add the corresponding `.m` files to **step07_advanced/** as they are implemented. EFA/decoder/cross-generalization are also implemented in the Python repo (e.g. autoresearch-behavior).
+| Purpose | Run **one of** (in step07_advanced/) |
+|---------|--------------------------------------|
+| Modules 5–12 (QC, GLMM, PCA/EFA, event-locked, predictive) | `analyze_modules_5_to_11.m`, `analyze_modules_5_to_11_new.m`, or `analyze_advanced_pipeline.m` |
+| Straub tail | `compute_straub_tail_only_v1.m`, `compute_straub_nonmoving_only_v1.m` |
+| Dashboard | `analyze_passive_active_dashboard_dec2.m`, `analyze_passive_active_dashboard_dec.m` |
+| Addiction score / EFA | `analyze_addiction_score_efa_dec4.m` (or dec3, dec2, both, mousefit) |
+| Longitudinal QC | `make_longitudinal_QC_and_requested_analyses_NEWCOHORT_20260203_cursor.m` (or other QC variants there) |
+
+EFA/decoder/cross-generalization also in the Python repo (e.g. autoresearch-behavior).
 
 ---
 
@@ -108,7 +116,7 @@ Add the corresponding `.m` files to **step07_advanced/** as they are implemented
 1. **Step 01a (pupil)** — Run pupil scripts in `step01_pupil/` for every session; set paths at top of each script.
 2. **Step 01b (manual assays)** — Run manual scoring (TST, HOT, Straub) in `step01_manual_assays/`; set folder paths as needed.
 3. **Step 02 (longitudinal)** — Open `step02_build_longitudinal/Longitudinal_final_trialrequire_HOTTST_passive_final_handle_nomatchingstrabu.m`, set **`BASE`**, run. Creates `BASE\longitudinal_outputs\run_###\ALL_mice_longitudinal.csv`.
-4. **Steps 03–07** — Run from each folder as needed; all use the latest `run_*` output. See each step’s README for script names.
+4. **Steps 03–07** — Run **one script per purpose** from each folder (each step’s README has a “run one of” table). All use the latest `run_*` output.
 
 ---
 

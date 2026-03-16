@@ -1,27 +1,16 @@
 # Step 07: Advanced pipeline (EFA, modules 5–12, Straub, predictive)
 
-Run **after Step 02**. Advanced analyses: feature QC, GLMM/LME, PCA/clustering/EFA, event-locked, cumulative fit, cross-modal, RL model, predictive/decoder, Straub tail, addiction score, longitudinal QC, rasters.
+Run **after Step 02**. This folder holds optimized variants of advanced analyses (many scripts are duplicates with small changes — **run one per purpose**).
 
-## Plan / module → MATLAB implementation
+## Scripts (run one per purpose)
 
-| Plan / Module | MATLAB implementation |
-|---------------|------------------------|
-| **Module 5** (Feature QC) | `analyze_modules_5_to_11` |
-| **Module 6** (GLMM/LME) | `analyze_modules_5_to_11` |
-| **Module 7** (PCA, clustering, EFA) | `analyze_modules_5_to_11` |
-| **Module 8** (Event-locked) | `analyze_modules_5_to_11` |
-| **Module 9** (Cumulative fit) | `analyze_modules_5_to_11` |
-| **Module 10** (Cross-modal) | `analyze_modules_5_to_11` |
-| **Module 11** (RL model) | `analyze_modules_5_to_11` |
-| **Module 12** (Predictive) | `analyze_modules_5_to_11` (or separate `analyze_modules_5_to_12`) |
-| **Straub tail** | `compute_straub_tail_only_v1` |
-| **Dashboard / preprocessing** | `analyze_passive_active_dashboard_dec2` |
-| **Addiction score / EFA** | `analyze_addiction_score_efa_*.m` |
-| **Longitudinal QC** | `make_longitudinal_QC_and_requested_analyses_NEWCOHORT_20260203_cursor.m` |
-| **Rasters** | `plotLickAndBoutRasters_SelectedDays.m` |
+| Purpose | Run **one of** |
+|---------|-----------------|
+| **Modules 5–12** (QC, GLMM, PCA/EFA, event-locked, cumulative fit, cross-modal, RL, predictive) | `analyze_modules_5_to_11.m`, `analyze_modules_5_to_11_new.m` — or `analyze_advanced_pipeline.m` |
+| **Straub tail** | `compute_straub_tail_only_v1.m`, `compute_straub_nonmoving_only_v1.m` |
+| **Dashboard / preprocessing** | `analyze_passive_active_dashboard_dec2.m`, `analyze_passive_active_dashboard_dec.m` |
+| **Addiction score / EFA** | `analyze_addiction_score_efa_dec4.m`, `analyze_addiction_score_efa_dec3.m`, `analyze_addiction_score_efa_dec2.m`, `analyze_addiction_score_efa_both.m`, `analyze_addiction_score_efa_mousefit.m` — or `compute_addiction_index_EFA_mousefit_projectDays*.m` |
+| **Longitudinal QC** | `make_longitudinal_QC_and_requested_analyses_NEWCOHORT_20260203_cursor.m`, `make_longitudinal_QC_and_requested_analyses_NEWCOHORT_20260203.m`, or other `make_longitudinal_QC_*` variants in this folder |
+| **Event-locked / rasters** | `analyze_pupil_event_locked.m`, `analyze_pupil_event_locked_REVISED.m`, `analyze_pupil_event_lockednew.m` — or `analyze_PR_pupil_pairs_raster.m` / `analyze_PR_pupil_pairs_rasternew.m` |
 
-Add the corresponding `.m` files to this folder as they are implemented. The same logic is available in the Python repo (decoder, EFA, cross-generalization) — see that repo for complementary analyses.
-
-## Prerequisite
-
-- **Step 02** (longitudinal CSV and run folder).
+**Prerequisite:** Step 02 (longitudinal CSV). Run from this folder or add it to the MATLAB path. Complementary EFA/decoder in the Python repo.

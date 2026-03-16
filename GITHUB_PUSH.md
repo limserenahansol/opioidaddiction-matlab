@@ -1,39 +1,33 @@
 # Push this repo to GitHub
 
-Follow these steps to publish **opioidaddiction-matlab** to GitHub.
-
 ## 1. Create the repo on GitHub
 
 1. Go to [github.com/new](https://github.com/new).
 2. **Repository name:** e.g. `opioidaddiction-matlab`.
-3. **Description (optional):** e.g. "MATLAB pipeline for morphine PR: per-session (pupil, assays) → longitudinal → downstream (motivation, lick, QC, EFA, modules 5–12)".
+3. **Description (optional):**  
+   `MATLAB pipeline for morphine PR experiment: per-session (pupil, assays) → longitudinal (all mice × days) → downstream (motivation, lick, QC, EFA, Straub).`
 4. Choose **Public** (or Private).
-5. **Do not** check "Add a README", "Add .gitignore", or "Choose a license" — this repo already has them.
+5. **Do not** check "Add a README", "Add .gitignore", or "Choose a license".
 6. Click **Create repository**.
 
 ## 2. Push from your machine
 
-In a terminal, from the **opioidaddiction-matlab** folder:
-
 ```bash
 cd C:\Users\hsollim\behavior_task\opioidaddiction-matlab
 
-# Add GitHub as remote (replace YOUR_USERNAME with your GitHub username)
 git remote add origin https://github.com/YOUR_USERNAME/opioidaddiction-matlab.git
-
-# Use main as default branch (optional)
 git branch -M main
-
-# Push
 git push -u origin main
 ```
 
-If GitHub asks for a password, use a **Personal Access Token** (Settings → Developer settings → Personal access tokens), not your account password.
+Replace **YOUR_USERNAME** with your GitHub username (e.g. `limserenahansol`).  
+If prompted for a password, use a [Personal Access Token](https://github.com/settings/tokens).
 
-## 3. Check the repo on GitHub
+## 3. What people will see
 
-- The **README** will show the **pipeline schematic** (Phase 1: per-session → Phase 2: build longitudinal → Phase 3: downstream).
-- **PIPELINE.md** has the flow diagram and the advanced pipeline (Plan / Module → MATLAB) table.
+- **README** shows the pipeline schematic image and a short table (Phase 1 → 2 → 3).
+- **PIPELINE.md** has the run order and "run one of" summary for the advanced step.
+- Each **step folder** has a README with a "run one of" table so users pick one script per purpose.
 
-Done. Others can clone with:
+Clone for others:  
 `git clone https://github.com/YOUR_USERNAME/opioidaddiction-matlab.git`
