@@ -1,12 +1,12 @@
-# Step 03: Motivation (PR) analysis (run third)
+# Step 03: Motivation (PR) — downstream
 
-Run after **Step 02**. Trial- and session-level motivation (Progressive Ratio) tables and plots.
+Run **after Step 02**. Trial- and session-level motivation (Progressive Ratio) from the latest `run_*/ALL_mice_longitudinal.csv`.
 
 ## Scripts
 
-- **`run_motivation_analysis.m`** / **`run_motivation_analysis_new.m`** — Builds trial/session motivation tables and plots. Writes to `run_*/figs/motivation/` (e.g. `TrialsMotiv.csv`, `SessionsMotiv.csv`, PNGs).
+- **`run_motivation_analysis.m`** / **`run_motivation_analysis_new.m`** — Trial/session motivation tables and plots. Writes to `run_*/figs/motivation/` (e.g. `TrialsMotiv.csv`, `SessionsMotiv.csv`, PNGs).
 - **`motivation_extras_independent_new.m`** — Extra motivation analyses; outputs under `run_*/figs/motivation/`.
 
-## Next
+## Prerequisite
 
-After Step 01, 02, 03, run **Step 04** to build **longitudinal_outputs** and **ALL_mice_longitudinal.csv**.
+- **Step 02** must be run first (latest `run_*/ALL_mice_longitudinal.csv`).

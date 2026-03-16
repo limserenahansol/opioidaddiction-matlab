@@ -1,6 +1,6 @@
-# Step 01: Pupil tracking and alignment (run first)
+# Step 01a: Pupil tracking and alignment (per-session)
 
-Run this step **first** in the pipeline. Per-session pupil processing: pseudo-labeling, U-Net tracking, and alignment to Saleae digital TTLs.
+**Per-session** work — run for every session/video before building the longitudinal file. Pupil pseudo-labeling, U-Net tracking, and alignment to Saleae digital TTLs.
 
 ## Scripts (run in order for each video/session)
 
@@ -11,4 +11,4 @@ Run this step **first** in the pipeline. Per-session pupil processing: pseudo-la
 
 ## Next
 
-After Step 01 (and 02–03), run **Step 04** to build `longitudinal_outputs` and `ALL_mice_longitudinal.csv`.
+After all sessions have pupil (and **Step 01b** manual assays) done, run **Step 02** to build the longitudinal folder (all mice × all days).

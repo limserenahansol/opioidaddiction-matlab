@@ -1,8 +1,6 @@
 # Pipeline: Run order and roadmap
 
-Run order: **Step 01 → 02 → 03 → 04 → 05 → 06 → 07.**
-
-After **Step 01, 02, 03** you run **Step 04** to build **longitudinal_outputs** and the master CSV. Steps 05–07 then use that CSV.
+**Run order:** Do all **per-session** work (Step 01a + 01b), then **Step 02** (build longitudinal). Then run **downstream** steps 03–07 in any order.
 
 ---
 
@@ -10,44 +8,62 @@ After **Step 01, 02, 03** you run **Step 04** to build **longitudinal_outputs** 
 
 ```mermaid
 flowchart TB
-    S01[Step 01: Pupil] --> S02[Step 02: Lick]
-    S02 --> S03[Step 03: Motivation]
-    S03 --> S04[Step 04: Build longitudinal]
-    S04 --> CSV[("ALL_mice_longitudinal.csv")]
-    CSV --> S05[Step 05: QC & stats]
-    CSV --> S06[Step 06: Assays]
-    CSV --> S07[Step 07: Visualization]
+    S01a[Step 01a: Pupil per session]
+    S01b[Step 01b: Manual assays per session]
+    S02[Step 02: Build longitudinal]
+    CSV[("ALL_mice_longitudinal.csv")]
+    S03[Step 03: Motivation]
+    S04[Step 04: Lick]
+    S05[Step 05: QC and stats]
+    S06[Step 06: Visualization]
+    S07[Step 07: Advanced pipeline]
+    S01a --> S02
+    S01b --> S02
+    S02 --> CSV
+    CSV --> S03
+    CSV --> S04
+    CSV --> S05
+    CSV --> S06
+    CSV --> S07
 ```
 
-| Step | Output |
-|------|--------|
-| 01 | Pupil CSVs, aligned to Saleae |
-| 02 | Lick analyses, per_session_features (if applicable) |
-| 03 | Trial/session motivation tables and plots |
-| 04 | `longitudinal_outputs/run_###/ALL_mice_longitudinal.csv` |
-| 05 | `run_###/figs/`, QC_AND_REQUESTED_ANALYSES_* |
-| 06 | Assay summaries; manual scoring |
-| 07 | Dashboards, rasters, event-locked pupil, arranged figures |
+| Step | Description |
+|------|-------------|
+| 01a | Pupil tracking + alignment (per session/video) |
+| 01b | Manual scoring: TST, HOT, Straub, etc. (per session); results feed into Step 02 |
+| 02 | Build one folder: `longitudinal_outputs/run_###/`, **ALL_mice_longitudinal.csv** (all mice × all days) |
+| 03 | Motivation (PR) — downstream |
+| 04 | Lick pipeline — downstream |
+| 05 | QC, longitudinal stats/plots — downstream |
+| 06 | Dashboards, rasters, event-locked pupil — downstream |
+| 07 | Advanced: EFA, modules 5–12, Straub, addiction score, predictive — downstream |
 
 ---
 
 ## Dependencies
 
-- **01–03:** Use your raw/per-session data paths (set in each script).
-- **04:** Set `BASE` in `step04_build_longitudinal/Longitudinal_final_trialrequire_HOTTST_passive_final_handle_nomatchingstrabu.m`.
-- **05–07:** Use the **latest** `run_*` under `longitudinal_outputs` (script logic or path set at top).
+- **01a, 01b:** Per-session; set paths in each script. Do for all sessions before Step 02.
+- **02:** Set `BASE` in `step02_build_longitudinal/Longitudinal_final_trialrequire_HOTTST_passive_final_handle_nomatchingstrabu.m`.
+- **03–07:** Use the **latest** `run_*` under `longitudinal_outputs` (script logic or path at top).
 
 ---
 
-## Roadmap mapping (modules → steps)
+## Advanced pipeline (Step 07): plan → MATLAB
 
-| Roadmap module | MATLAB step |
-|----------------|-------------|
-| Pupil, alignment, session-level features | 01, 04 |
-| Lick, microstructure, rhythm, PCA/clustering | 02 |
-| Motivation (PR), LME/GLMM-style analyses | 03, 05 |
-| QC, longitudinal plots/stats | 05 |
-| Assays (TI, TST, HP, Straub) | 06 |
-| Event-locked, dashboards, visualization | 07 |
+| Plan / Module | MATLAB implementation |
+|---------------|------------------------|
+| Module 5 (Feature QC) | `analyze_modules_5_to_11` |
+| Module 6 (GLMM/LME) | `analyze_modules_5_to_11` |
+| Module 7 (PCA, clustering, EFA) | `analyze_modules_5_to_11` |
+| Module 8 (Event-locked) | `analyze_modules_5_to_11` |
+| Module 9 (Cumulative fit) | `analyze_modules_5_to_11` |
+| Module 10 (Cross-modal) | `analyze_modules_5_to_11` |
+| Module 11 (RL model) | `analyze_modules_5_to_11` |
+| Module 12 (Predictive) | `analyze_modules_5_to_11` / `analyze_modules_5_to_12` |
+| Straub tail | `compute_straub_tail_only_v1` |
+| Dashboard / preprocessing | `analyze_passive_active_dashboard_dec2` |
+| Addiction score / EFA | `analyze_addiction_score_efa_*.m` |
+| Longitudinal QC | `make_longitudinal_QC_and_requested_analyses_NEWCOHORT_20260203_cursor.m` |
+| Rasters | `plotLickAndBoutRasters_SelectedDays.m` |
 
-Decoder / EFA / cross-generalization are in a separate (e.g. Python) repo, not this one.
+Add these scripts to **step07_advanced/** as they are implemented. Complementary EFA/decoder/cross-generalization exist in the Python repo.
