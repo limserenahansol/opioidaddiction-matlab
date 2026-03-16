@@ -1,0 +1,27 @@
+# MATLAB
+*.asv
+*.m~
+*.autosave
+*.mat
+*.fig
+
+# Data and large outputs (uncomment to exclude)
+# longitudinal_outputs/
+# figs/
+# *.csv
+# *.xlsx
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs and temp
+*.log
+*.tmp
+*.temp
