@@ -20,6 +20,16 @@ MATLAB pipeline for the **morphine progressive-ratio (PR)** self-administration 
 
 ---
 
+## Addiction vs reinforcement learning (logic)
+
+Concept figure for the morphine PR framing: one shared starting point, two branches (instrumental RL vs addiction-layer hypotheses), then conclusion. Labels and step markers (A, B, 1–7) are drawn **inside** the rounded boxes.
+
+![Addiction vs RL logic flowchart](addiction_rl_logic_flowchart.png)
+
+PDF: [addiction_rl_logic_flowchart.pdf](addiction_rl_logic_flowchart.pdf)
+
+---
+
 ## Pipeline schematic (Mermaid)
 
 ```mermaid
