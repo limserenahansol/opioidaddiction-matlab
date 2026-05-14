@@ -4,6 +4,8 @@ MATLAB pipeline for the **morphine progressive-ratio (PR)** self-administration 
 
 **New here?** Three phases: (1) Run per-session steps 01a and 01b for every session. (2) Run step 02 once to build the longitudinal CSV. (3) Run steps 03–07 in any order. In each step folder, pick **one** script per purpose (see the "run one of" table in each README).
 
+**Cross-repo & LLM wiki:** [`wiki/README.md`](wiki/README.md) · [central research wiki](https://github.com/limserenahansol/research-wiki/blob/main/index.md)
+
 ---
 
 ## Pipeline at a glance
