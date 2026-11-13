@@ -21,6 +21,8 @@ run_pupil_one_click('ROIMode', 'previous')                          % never ask:
 The only manual step is the ROI, and only for sessions without `roi.mat`. They are asked **all at the start**: the previous day's ROI is
 shown as a movable box — adjust and double-click it, or close the window to keep it. After that the run is unattended.
 
+**Needs:** MATLAB R2024b (tested) with Deep Learning, Image Processing and Computer Vision Toolboxes (the U-Net layers live in the last one; also needed to load the model). Signal Processing is optional (`sgolayfilt`, falls back to `movmean`). A GPU makes it ~3 min per session; CPU works but is slower.
+
 ## Expected layout (as in Dec-2025)
 
 ```

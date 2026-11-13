@@ -25,6 +25,8 @@ run_pupil_one_click('ROIMode', 'previous')                          % ROI가 없
 - 창을 닫으면 전날 ROI를 그대로 씁니다.
 - 그 뒤로는 자동으로 돌아갑니다.
 
+**필요한 것:** MATLAB R2024b(시험한 버전) + Deep Learning, Image Processing, Computer Vision Toolbox. U-Net 층이 Computer Vision Toolbox에 들어 있어서 모델을 불러올 때도 필요합니다. Signal Processing은 선택입니다. GPU가 있으면 세션당 약 3분 걸리고, 없으면 CPU로 더 느리게 돌아갑니다.
+
 ## 폴더 구조 (Dec-2025와 같음)
 
 ```
