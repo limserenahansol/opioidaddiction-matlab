@@ -1,0 +1,6 @@
+{
+  "video_root": "<folder with dayN\\<cage>\\<color>\\*.avi and roi.mat>",
+  "session_root": "<folder with dayN\\<cage>\\<color>\\digital.csv (and, for the inventory, concat_out_*\\summary.txt)>",
+  "out_root": "<separate folder for the one-click outputs>",
+  "work_dir": "<folder for the training lists, models and toy data>"
+}

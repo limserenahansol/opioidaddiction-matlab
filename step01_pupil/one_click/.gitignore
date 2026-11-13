@@ -1,0 +1,4 @@
+# local paths (repo rule: no absolute paths committed) and the trained model (unpublished data)
+one_click_paths.json
+model/*.mat
+__pycache__/

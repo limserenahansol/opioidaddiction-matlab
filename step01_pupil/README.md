@@ -9,6 +9,12 @@
 3. **`step3_dec291123342.m`** — Load config from Step 1/2 run folder, apply trained U-Net, write pupil CSV + video. Edit: `BASE`, `VIDEO`, `RUN_FOLDER_NAME`, `MODEL_DIR`.
 4. **`alignment_pupil_salae_aug20.m`** — Align Saleae `digital.csv` to pupil CSV. Set `DIGITAL_FILE` and `PUPIL_FILE` at top.
 
+## One-click alternative (2026-11-12)
+
+**`one_click/run_pupil_one_click.m`** does steps 1–4 for every mouse x day in one call, with one general U-Net (no per-video clicks or
+training): finds sessions and TTL files, picks the pupil video by its frame count, tracks, aligns, and writes a QC report. The scripts above
+are unchanged. See [one_click/README.md](one_click/README.md).
+
 ## Next
 
 After all sessions have pupil (and **Step 01b** manual assays) done, run **Step 02** to build the longitudinal folder (all mice × all days).
