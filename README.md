@@ -97,6 +97,10 @@ Each step folder has a **README.md** and its `.m` scripts.
 | **05** | [step05_qc_and_longitudinal](step05_qc_and_longitudinal/) | Downstream: QC, longitudinal stats and plots. |
 | **06** | [step06_visualization](step06_visualization/) | Downstream: passive/active dashboards, PR+pupil rasters, event-locked pupil. |
 | **07** | [step07_advanced](step07_advanced/) | Downstream: EFA, modules 5–12 (QC, GLMM, PCA/EFA, event-locked, predictive), Straub, addiction score, rasters. |
+| **08** | [step08_pr_trajectory_downstream](step08_pr_trajectory_downstream/) | Downstream: PR trial licking trajectory (within/between-trial lick rate vs PR level), optional trajectory k-means. Demo data included. |
+| **09** | [step09_paper_trajectory_benchmark](step09_paper_trajectory_benchmark/) | Benchmark hub: EFA clusters vs PR-trajectory clusters (ARI, NMI, confusion). Demo data included. |
+| **10** | [step10_pr_licking_trajectory_phenotype](step10_pr_licking_trajectory_phenotype/) | PR + licking trajectory phenotype clustering; day filter and passive-lockout constants (`DAY_INDEX_MIN`, `PASSIVE_DURING_LICK_DAYS`, `PR_EXCLUDE_DAYS`). |
+| **new cohorts** | [current_cohort_workflow](current_cohort_workflow/) | Daily arrangement + pupil/TST + original Step 02 on any BASE + cohort figures + cohort combining (current rig). See [PIPELINE.md](current_cohort_workflow/PIPELINE.md). |
 
 ---
 
@@ -156,3 +160,17 @@ EFA/decoder/cross-generalization also in the Python repo (e.g. autoresearch-beha
 ## License
 
 See [LICENSE](LICENSE) if present.
+
+---
+
+## New cohorts on the current rig: `current_cohort_workflow/`
+
+Added in November 2026. Everything above is unchanged; the new folder only adds code.
+- **Daily routine:** arrange the task log, Saleae and video files by start time; sync them; make a day summary.
+- **Pupil + TST:** the pupil/TST package, with a small patch so it reads the current rig's video and folder names.
+- **Assay video arrangement:** puts TST and hot-plate videos into the cohort folders.
+- **Original Step 02:** run on any `BASE` through `run_step02_on_base.m`. It matched `run_009` exactly for the previous cohort's day-1 sessions.
+- **Cohort figures:** made in the style of the previous analysis.
+- **Combining cohorts:** joins two cohorts' `ALL_mice_longitudinal.csv` into one file with the same columns and duplicate sessions removed.
+
+See [current_cohort_workflow/README.md](current_cohort_workflow/README.md), [current_cohort_workflow/PIPELINE.md](current_cohort_workflow/PIPELINE.md) and [current_cohort_workflow/docs/ANALYSIS_METHODS.md](current_cohort_workflow/docs/ANALYSIS_METHODS.md).

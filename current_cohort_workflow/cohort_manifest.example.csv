@@ -1,0 +1,3 @@
+mouse_key,cage_folder,mouse,sex,group,pair_id,note
+1234_black,1234m,black,M,Active,P1,mouse_key = <4-digit cage>_<mouse folder> (as Step 02 writes it)
+1234_white,1234m,white,M,Passive,P1,yoked to 1234_black on days 6-10

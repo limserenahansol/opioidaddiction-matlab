@@ -1,0 +1,95 @@
+--- a/RUN_ALL_18DAYS.m
++++ b/RUN_ALL_18DAYS.m
+@@ -692,6 +692,9 @@
+ s = string(v); s = strtrim(s(:)'); s = s(strlength(s) > 0);
+ for x = s
+     t = regexp(lower(char(x)), '^(?:day)?\s*(\d+)[\s_\\/,;:.-]+(\d{4})[\s_\\/-]*([a-z]+)$', 'tokens', 'once');
++    if isempty(t)   % CURRENT-COHORT EDIT 2026-11-14: 'day1 9670f_green1' (sex letter after the cage, number after the colour)
++        t = regexp(lower(char(x)), '^(?:day)?\s*(\d+)[\s_\\/,;:.-]+(\d{4}[a-z]?)[\s_\\/-]+([a-z]+\d*)$', 'tokens', 'once');
++    end
+     assert(~isempty(t), 'RUN_ALL_18DAYS:config', '%s: "%s" is not a session like "day12 0910_red" (in %s)', name, x, f);
+     m{end+1} = sprintf('day%d %s_%s', str2double(t{1}), t{2}, t{3}); %#ok<AGROW>
+ end
+@@ -705,6 +708,9 @@
+ m = m(~cellfun(@isempty, m));
+ for i = 1:numel(m)
+     t = regexp(m{i}, '^(\d{4})_?([A-Za-z]+)$', 'tokens', 'once');   % "0910red" -> "0910_red" (case kept)
++    if isempty(t)   % CURRENT-COHORT EDIT 2026-11-14: "9670f_green1" (sex letter after the cage, number after the colour)
++        t = regexp(m{i}, '^(\d{4}[A-Za-z]?)_([A-Za-z]+\d*)$', 'tokens', 'once');
++    end
+     if ~isempty(t), m{i} = [t{1} '_' t{2}];
+     else, fprintf('NOTE: mice entry "%s" is not <cage>_<color> (e.g. 0910_red); it will match no session\n', m{i});
+     end
+--- a/pupil/run_pupil_one_click.m
++++ b/pupil/run_pupil_one_click.m
+@@ -113,7 +113,7 @@
+ for i = 1:height(L)
+     L.digital(i) = string(find_digital(o, L.day(i), L.cage(i), L.color(i)));
+     if strlength(L.digital(i)) > 0, L.ttl_edges(i) = count_camera_edges(L.digital(i)); end
+-    vids = dir(fullfile(L.video_dir(i), '*.avi')); nf = zeros(numel(vids),1); fr = zeros(numel(vids),1);
++    vids = list_videos(L.video_dir(i)); nf = zeros(numel(vids),1); fr = zeros(numel(vids),1);   % CURRENT-COHORT EDIT 2026-11-14: .avi or .mp4
+     wh = zeros(numel(vids),2);
+     for v = 1:numel(vids), [nf(v), fr(v), wh(v,:)] = video_frames(fullfile(vids(v).folder, vids(v).name)); end
+     L.videos(i) = strjoin(string({vids.name}) + "(" + string(nf') + " fr, " + string(fr') + " fps, " + ...
+@@ -328,10 +328,11 @@
+     if ~inDays && ~any(startsWith(extraKeys, sprintf('day%d ', di))), continue; end
+     cc = dir(fullfile(d.folder, d.name));
+     for c = cc(:)'
+-        if ~c.isdir || isempty(regexp(c.name, '^\d{4}$', 'once')), continue; end
++        % CURRENT-COHORT EDIT 2026-11-14: the cage folder may end with a sex letter (9670f, 9669m); '^\d{4}$' before
++        if ~c.isdir || isempty(regexp(c.name, '^\d{4}[a-zA-Z]?$', 'once')), continue; end
+         kk = dir(fullfile(c.folder, c.name));
+         for k = kk(:)'
+-            if ~k.isdir || startsWith(k.name, '.') || isempty(dir(fullfile(k.folder, k.name, '*.avi'))), continue; end
++            if ~k.isdir || startsWith(k.name, '.') || isempty(list_videos(fullfile(k.folder, k.name))), continue; end   % CURRENT-COHORT EDIT 2026-11-14
+             inMice = isempty(o.Mice) || ismember([c.name '_' k.name], o.Mice);
+             ses = string(sprintf('day%d %s_%s', di, c.name, k.name));
+             if ~(inDays && inMice) && ~ismember(lower(ses), extraKeys), continue; end
+@@ -368,6 +369,9 @@
+ x = string(x); x = strtrim(x(:)); x = x(strlength(x) > 0);
+ for s = x'
+     t = regexp(lower(char(s)), '^(?:day)?\s*(\d+)[\s_\\/,;:.-]+(\d{4})[\s_\\/-]*([a-z]+)$', 'tokens', 'once');
++    if isempty(t)   % CURRENT-COHORT EDIT 2026-11-14: 'day1 9670f_green1' (sex letter after the cage, number after the colour)
++        t = regexp(lower(char(s)), '^(?:day)?\s*(\d+)[\s_\\/,;:.-]+(\d{4}[a-z]?)[\s_\\/-]+([a-z]+\d*)$', 'tokens', 'once');
++    end
+     if isempty(t)
+         error('run_pupil_one_click:badSession', '%s: "%s" is not a session name like "day12 0910_red"', optName, s);
+     end
+@@ -528,6 +532,12 @@
+ n = nnz(cam & [false; ~cam(1:end-1)]);
+ end
+ 
++function vids = list_videos(folder)
++% CURRENT-COHORT EDIT 2026-11-14: the old rig wrote DV .avi files, the current rig (IC Capture) writes .mp4
++% (1920x1080 H.264). Both are candidates; the frame count closest to the camera TTLs still picks the pupil video.
++vids = [dir(fullfile(folder, '*.avi')); dir(fullfile(folder, '*.mp4'))];
++end
++
+ function [n, fps, wh] = video_frames(f)
+ % Duration x FrameRate: same as NumFrames within 1 frame on these AVIs, but < 1 s instead of ~10 s per 3 GB file.
+ % wh = decoded [width height] (what readFrame returns on this PC)
+--- a/pupil/pupil_align_ttl.m
++++ b/pupil/pupil_align_ttl.m
+@@ -21,7 +21,8 @@
+ % injector is OPTIONAL; try to find, else placeholder
+ injCol = ''; hasInjector = false;
+ try
+-    injCol = pickVar(Tdig, {'injector','Injector','injection','Inj','Channel 4','Channel_4'});
++    % CURRENT-COHORT EDIT 2026-11-14: the current rig's Saleae export names Channel 4 'reward' (added last, so old files are unchanged)
++    injCol = pickVar(Tdig, {'injector','Injector','injection','Inj','Channel 4','Channel_4','reward','Reward'});
+     hasInjector = true;
+ catch
+ end
+--- a/tst/scoring_io.py
++++ b/tst/scoring_io.py
+@@ -34,7 +34,9 @@
+ BEHAVIOR_NAMES = ["Non-moving", "Licking", "Rearing", "Flinching", "Hindlimb Licking", "Jump"]
+ HP_CODES = {0: "Non-moving", 1: "Licking", 2: "Rearing", 3: "Flinching", 4: "Hindlimb Licking", 5: "Jump"}
+ TST_CODES = {0: "Non-moving", 1: "Moving"}
+-_MOUSE = re.compile(r"(\d{4})\s*_?\s*(black|orange|red|white|whithe)", re.I)
++# CURRENT-COHORT EDIT 2026-11-14: optional sex letter after the cage (9670f, 9669m) and colours green1 / green2.
++# Old names parse as before ('0910blackhot' -> '0910_black'); '9670fgreen1tst' -> '9670_green1'.
++_MOUSE = re.compile(r"(\d{4})[a-z]?\s*_?\s*(black|orange|red|white|whithe|green\d*)", re.I)
+ 
+ 
+ def load_paths() -> dict:
