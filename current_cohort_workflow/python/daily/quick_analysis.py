@@ -785,10 +785,12 @@ def main(argv=None):
 
 
 def frame_sampled_licks(root: Path, day_folder: str):
-    """Licks counted as the previous pipeline does (0->1 of Lick_TTL read at every camera frame), from the pupil/TST
-    package's alignment table pupil_tst_final\\dayN\\cage\\mouse\\concat_out_*\\combined_pupil_digital.csv (NaN if none)."""
+    """Licks counted as the previous pipeline does (0->1 of Lick_TTL read at every camera frame), from the alignment
+    table that Step 02 gets: the newest pupil_tst_final\\dayN\\cage\\mouse\\concat_out_*\\combined_pupil_digital.csv
+    (the package's, or an approved sync-aligned copy that passed its checks, i.e. has fix_source.json; NaN if none)."""
     d = root / "pupil_tst_final" / day_folder
     cos = sorted(d.glob("concat_out_*/combined_pupil_digital.csv")) if d.exists() else []
+    cos = [c for c in cos if not c.parent.name.endswith("_syncaligned") or (c.parent / "fix_source.json").exists()]
     if not cos:
         return np.nan
     try:

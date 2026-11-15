@@ -25,6 +25,7 @@ Run order, logic diagram, definitions and the protocol differences between cohor
 | `pupil_finetune/` | How the U-Net was fine-tuned for the current rig: sample frames, candidate sheets, two independent labels per frame, leave-mice-out / leave-day-out checks. Repeat for a new cohort or rig. |
 | `python/daily/pupil_roi_check.py` | Daily eye-box check sheet (3 frames per mouse, ROI drawn, "no pupil" fraction). |
 | `python/daily/pupil_session_quality.py` | Per-session pupil grade (`pupil_session_quality.csv`): the manual grade of `pupil_grades.csv`, else an automatic stability grade. `ok` / `noisy` sessions are used by the daily analysis, `guess` / `no_pupil` are not. |
+| `python/daily/fix_concat_alignment.py` + `matlab/pupil_align_ttl_sync.m` | For sessions the user approved (`alignment_fixes.csv`): a new `concat_out_<stamp>_syncaligned` in which video frame k is matched to the camera pulse `sync_sessions.py` gives it. The package matches at the end when the counts differ. The package's output and code are not changed. Each copy is checked row by row and logged. |
 | `python/daily/pupil_guess_trace.py` | Best-guess pupil trace for hard sessions (narrowed or inflamed eye) from `hybrid_detections.csv`. It is labelled as a guess and never replaces the tracked pupil. |
 
 ## Requirements

@@ -9,7 +9,9 @@ daily_summary.py - end-of-day routine ("summary of today behavior result").
               Every action is written to <project>/_arrangement_log.csv. Files still open (recording) are skipped.
   2) SYNC     sync_sessions.py   (Python + Saleae + video on one clock)
   3) ANALYSIS quick_analysis.py  (per-day summary figures + across-day master tables)
-  4) PUPIL    the user's pupil/TST package for this day (TST too when tst_video\\dayN has videos); ~10 min/session
+  4) PUPIL    the user's pupil/TST package for this day (TST too when tst_video\\dayN has videos); ~10 min/session,
+              then the approved alignment fixes (fix_concat_alignment.py), pupil grades + alignment check
+              (pupil_session_quality.py), guess traces and the eye-box check sheet
   5) STEP 02  copy this day's concat_out + task log (+ assay files) into step02_base (input of the original Step 02)
   6) (--longitudinal) original Step 02 -> ALL_mice_longitudinal.csv, then the cohort figures
 
@@ -463,16 +465,18 @@ def run_package_day(day_n: int, tst: bool) -> bool:
 
 
 def update_step02_base(day_n: int) -> bool:
-    """Copy this day's newest concat_out + task log (+ assay files) into <project>\\step02_base (what the ORIGINAL
-    Step 02 reads), so the longitudinal table can be built at any time with run_step02_on_base.m."""
+    """Copy the newest concat_out + task log (+ assay files) of every day into <project>\\step02_base (what the
+    ORIGINAL Step 02 reads), so the longitudinal table can be built at any time with run_step02_on_base.m. All days,
+    not only day_n: a session redone or fixed later replaces its old copy (moved to step02_base\\_superseded_<date>);
+    copies that are already there are left alone."""
     script = WORKFLOW / "python" / "prepare_step02_base.py"
     if not script.exists():
         print("\n(step02_base not updated: current_cohort_workflow not found in tools)")
         return False
-    print(f"\n=== STEP 02 BASE (day {day_n}) ===")
+    print(f"\n=== STEP 02 BASE (all days; new today: day {day_n}) ===")
     subprocess.run([sys.executable, str(script), "--pupil-out", str(PROJECT / "pupil_tst_final"), "--python-root",
                     str(PROJECT / "python"), "--assays", str(PROJECT / "assays"), "--base", str(PROJECT / "step02_base"),
-                    "--days", str(day_n), "--apply"])
+                    "--apply"])
     return True
 
 
@@ -533,10 +537,21 @@ def main(argv=None):
             has_tst = tst_dir.exists() and any(p.suffix.lower() in (".mp4", ".avi", ".mov", ".mkv", ".wmv", ".m4v")
                                                for p in tst_dir.rglob("*"))
             if run_package_day(dn, has_tst):
-                # per-session pupil grade (added 2026-11-15): manual pupil_grades.csv, else automatic stability grade
+                # approved alignment fixes (added 2026-11-15): sync-aligned copy of the package's concat_out for the
+                # sessions in pupil_tst_final\alignment_fixes.csv (the user's approval); any other mismatch is only
+                # listed by pupil_session_quality.py below (ask the user first)
+                # ALL approved sessions, not only today's: a session redone later (RUN_ALL_18DAYS redo) gets its
+                # fix again here; up-to-date sessions are skipped in a second
+                print("\n=== ALIGNMENT FIXES (approved sessions only) ===")
+                rc_fix = subprocess.run([sys.executable, str(TOOLS / "fix_concat_alignment.py"), "--project",
+                                         str(PROJECT)]).returncode
+                if rc_fix:
+                    print("  !! fix_concat_alignment.py reported a problem (see above and alignment_fixes_log.csv)")
+                # per-session pupil grade (added 2026-11-15): manual pupil_grades.csv, else automatic stability grade.
+                # All days are recomputed (a redone day's alignment check stays current); grade lines: today only
                 print("\n=== PUPIL QUALITY ===")
                 subprocess.run([sys.executable, str(TOOLS / "pupil_session_quality.py"),
-                                "--pupil-root", str(PROJECT / "pupil_tst_final"), "--days", str(dn)])
+                                "--pupil-root", str(PROJECT / "pupil_tst_final"), "--report-days", str(dn)])
                 subprocess.run([sys.executable, str(TOOLS / "pupil_guess_trace.py"),
                                 "--pupil-root", str(PROJECT / "pupil_tst_final"), "--days", str(dn)])
                 print("\n=== ANALYSIS (again, now with pupil) ===")

@@ -56,9 +56,21 @@ flowchart TB
    - It takes about 10-20 min per session; use `--no-pupil` to skip it on a busy day.
    - The TST step runs automatically when `tst_video\dayN` has videos.
    - **Session grade.** `pupil_session_quality.py` grades every new session (`pupil_tst_final\pupil_session_quality.csv`): the manual grade in `pupil_tst_final\pupil_grades.csv`, else `ok` / `check` from two stability numbers. Sessions graded `guess` or `no_pupil` are left out of the daily pupil figures and tables; `pupil_guess_trace.py` gives them a labelled best-guess trace. A `check` session needs a look at its `qc_sheet.png` and a row in `pupil_grades.csv`.
+   - **Alignment check and fix.** The same table has `align_check`. It compares the camera time of every video frame in the newest `concat_out_*` (the Step 02 input) with `sync_sessions.py`.
+     - `MISMATCH` means the video has more or fewer frames than camera pulses. The package's `pupil_align_ttl` (the original Step 01a logic) then matches them at the end. On this rig the video starts with the first pulse, so licks and rewards end up shifted against the pupil.
+     - Nothing changes until the user approves. For an approved session (a row in `pupil_tst_final\alignment_fixes.csv`), `fix_concat_alignment.py` runs `matlab/pupil_align_ttl_sync.m`. This is the original function with one change: the frame-to-pulse match is read from `<session>_frames.csv`.
+     - MATLAB first writes a temporary folder that no tool reads. That folder is renamed `concat_out_<stamp>_syncaligned`, next to the package's folder, only after these checks pass:
+       - every row's camera time matches `sync_sessions.py`;
+       - the lick and valve states at every camera pulse match the Saleae intervals;
+       - there is one reward onset per valve opening.
+     - Every attempt is logged in `alignment_fixes_log.csv`.
+     - Every day, `daily_summary.py` re-applies all approved fixes (for example after a redo of an earlier day). It only lists new mismatches.
+     - If an approved session's newest table is the package's again, `prepare_step02_base.py` leaves that session as it is until the fix has been re-applied.
    - **Eye-box check.** `pupil_roi_check.py` writes `analysis\days\dayN\figs\01_pupil_roi_check.png`: 3 frames per mouse with its ROI, the tracker's "no pupil" fraction and the session grade. Mice sit differently every day. If an eye is outside its box, set `redraw_roi` and run `RUN_ALL_18DAYS.bat` for that session.
    - Because every day is done the same evening, the day-18 `RUN_ALL_18DAYS.bat` only has to build the QC page and redo the sessions marked *redo*. Finished sessions are skipped.
-5. **Step 02 base (every day).** `prepare_step02_base.py` copies the day's newest `concat_out_*`, its task log and the assay files into `step02_base\dayN\...`.
+5. **Step 02 base (every day, all days).** `prepare_step02_base.py` copies each session's newest `concat_out_*`, its task log and the assay files into `step02_base\dayN\...`.
+   - Copies that are already there are left alone.
+   - An older copy, replaced by a checked `_syncaligned` copy or by a redo, is moved to `step02_base\_superseded_<date>\`. That folder is outside the `dayN` folders, so Step 02 does not count it as a second session. Each move is also recorded in `step02_base_moves.csv`.
    - `daily_summary.py --longitudinal` also rebuilds `ALL_mice_longitudinal.csv` with the original Step 02 and makes the cohort figures, so the data are ready for post-hoc analysis at any time.
 
 Session names (task-log `output=`) must be `<cage><mouse>_<task>day<N>`, e.g. `9670fgreen1_pr1day3`. The name sets `dayN\<cage>\<mouse>`.
