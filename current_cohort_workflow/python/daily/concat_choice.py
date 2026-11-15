@@ -20,6 +20,9 @@ from pathlib import Path
 SYNC, FULL = "_syncaligned", "_fullpupil"
 DERIVED = (SYNC, FULL)
 LISTS = {SYNC: "alignment_fixes.csv", FULL: "fullpupil_sessions.csv"}
+# sessions approved automatically by a mouse-level option (fullpupil_mice.csv; fullpupil_sessions.py writes this file):
+# they count like rows of fullpupil_sessions.csv unless that list has a row for the session that is NOT approved
+AUTO_FULL = "fullpupil_auto.csv"
 _STAMP = re.compile(r"concat_out_(\d{8}_\d{6})")
 
 
@@ -32,24 +35,49 @@ def norm_key(day, cage, mouse):
     return int(str(day).strip()), str(cage).strip().lower(), str(mouse).strip().lower()
 
 
-def approved_sessions(pupil_root: Path, list_name: str, warn=print) -> set:
-    """{(day, cage, mouse)} approved in <pupil_root>/<list_name> (lower case). A malformed file gives an empty set and
-    a warning, never an exception (it must not stop the grading of all other sessions)."""
-    p = Path(pupil_root) / list_name
-    out = set()
+def read_rows(path: Path, warn=print, need=("day", "cage", "mouse")):
+    """rows of a list file with lower-case keys; [] (and a warning) for a missing or malformed file - never raises"""
+    p = Path(path)
     if not p.exists():
-        return out
+        return []
     try:
         with open(p, newline="", encoding="utf-8-sig") as f:
-            rows = list(csv.DictReader(f))
-        for r in rows:
-            r = {str(k).strip().lower(): v for k, v in r.items() if k is not None}
-            d = str(r.get("day", "")).strip()
-            if d.isdigit() and r.get("cage") and r.get("mouse") and is_approved(r.get("approved")):
-                out.add(norm_key(d, r["cage"], r["mouse"]))
+            rows = [{str(k).strip().lower(): (v or "") for k, v in r.items() if k is not None} for r in csv.DictReader(f)]
+        return [r for r in rows if all(str(r.get(c, "")).strip() for c in need)]
     except Exception as exc:   # noqa: BLE001
         if warn:
-            warn(f"  !! {list_name} could not be read ({exc}); treated as empty")
+            warn(f"  !! {p.name} could not be read ({exc}); treated as empty")
+        return []
+
+
+def _keys(rows, pick):
+    return {norm_key(r["day"], r["cage"], r["mouse"]) for r in rows if str(r["day"]).strip().isdigit() and pick(r)}
+
+
+def approved_sessions(pupil_root: Path, list_name: str, warn=print) -> set:
+    """{(day, cage, mouse)} approved in <pupil_root>/<list_name> (lower case). A malformed file gives an empty set and
+    a warning, never an exception (it must not stop the grading of all other sessions). For the full-pupil list the
+    sessions approved automatically by the mouse option (fullpupil_auto.csv) are added, except sessions that have a
+    row in fullpupil_sessions.csv that is not approved (an explicit 'no' wins)."""
+    rows = read_rows(Path(pupil_root) / list_name, warn)
+    out = _keys(rows, lambda r: is_approved(r.get("approved")))
+    if list_name == LISTS[FULL]:
+        denied = _keys(rows, lambda r: str(r.get("approved", "")).strip() != "" and not is_approved(r.get("approved")))
+        auto = _keys(read_rows(Path(pupil_root) / AUTO_FULL, warn), lambda r: is_approved(r.get("approved")))
+        out |= auto - denied
+    return out
+
+
+def auto_full_sessions(pupil_root: Path, warn=None) -> dict:
+    """{key: reason} of the sessions approved only by the mouse option (not by an explicit row)"""
+    rows = read_rows(Path(pupil_root) / LISTS[FULL], warn)
+    explicit = _keys(rows, lambda r: str(r.get("approved", "")).strip() != "")
+    out = {}
+    for r in read_rows(Path(pupil_root) / AUTO_FULL, warn):
+        if str(r["day"]).strip().isdigit() and is_approved(r.get("approved")):
+            k = norm_key(r["day"], r["cage"], r["mouse"])
+            if k not in explicit:
+                out[k] = r.get("reason", "")
     return out
 
 

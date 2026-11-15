@@ -68,6 +68,10 @@ flowchart TB
      - If an approved session's newest table is the package's again, `prepare_step02_base.py` leaves that session as it is until the fix has been re-applied.
    - **Fully dilated pupils (an option for rare sessions).** When the whole eye is dark, the pupil is the whole dark area inside the lids. The package cannot measure this (see `pupil_finetune/README.md`).
      - Only sessions the user lists in `pupil_tst_final\fullpupil_sessions.csv` are measured this way (`fullpupil_sessions.py` -> `pupil_outputs_fullpupil\`). They get the grade `full_pupil` (used, marked), and Step 02 reads a `concat_out_<stamp>_fullpupil` copy.
+     - **Mouse option (automatic).** For mice listed in `pupil_tst_final\fullpupil_mice.csv`, every session on every day is checked. It gets the full-pupil measure only when the black region around the tracker's pupil is larger than 60 px, the largest pupil the package can report (median over 40 frames).
+       - The decisions are written to `fullpupil_check.csv` and `fullpupil_auto.csv`.
+       - An explicit `no` row in `fullpupil_sessions.csv` wins over an automatic yes.
+       - The check is used only for the listed mice, because some narrowed or inflamed eyes also pass 60 px.
      - Nothing changes for any other session. A screen that looks for such sessions exists, but it runs only when asked (`--screen-only`) and also flags some normal eyes.
      - The alignment fix above works the same way: an option for the sessions listed in `alignment_fixes.csv`.
    - **Eye-box check.** `pupil_roi_check.py` writes `analysis\days\dayN\figs\01_pupil_roi_check.png`: 3 frames per mouse with its ROI, the tracker's "no pupil" fraction and the session grade. Mice sit differently every day. If an eye is outside its box, set `redraw_roi` and run `RUN_ALL_18DAYS.bat` for that session.

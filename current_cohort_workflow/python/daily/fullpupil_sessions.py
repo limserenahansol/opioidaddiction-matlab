@@ -14,8 +14,14 @@ listed in fullpupil_sessions.csv, and the screen below runs only when asked (--s
    iris; when the pupil fills the eye the ring is as dark as the pupil. Writes <pupil_root>/fullpupil_screen.csv; a
    session with ring_dark >= 0.40 and ring_contrast <= 0.17 (medians) is listed as "look at it" - nothing is changed.
    (On the first cohort days it flagged every fully dilated session, but also some normal eyes: a look decides.)
+1b) MOUSE OPTION (automatic; <pupil_root>/fullpupil_mice.csv: cage, mouse, approved, check_60px, reason): every
+   session of a listed mouse is looked at on every run. With check_60px = yes (default) a session gets the full-pupil
+   measure only when the black region around the tracker's pupil is larger than 60 px - the largest pupil the
+   package's tracker can report - as a median over 40 frames (days 1-2: normal days 18-56 px, dilated days 69-93 px);
+   otherwise the package's pupil is kept. The decisions go to fullpupil_auto.csv / fullpupil_check.csv. An explicit
+   row in fullpupil_sessions.csv that is not approved ('no ...') overrides an automatic yes.
 2) LISTED sessions (<pupil_root>/fullpupil_sessions.csv: day, cage, mouse, approved, reason; a row counts only when
-   'approved' starts with 'yes' or a date YYYY-MM-DD; see concat_choice.py):
+   'approved' starts with 'yes' or a date YYYY-MM-DD; see concat_choice.py), plus the sessions of 1b:
    a) current_cohort_workflow/matlab/pupil_fullpupil_session.m -> <session>/pupil_outputs_fullpupil/
       (pupil_fullpupil_CLEAN.csv has the same columns as the package's CLEAN file; the daily analysis uses it for
       sessions graded full_pupil, see pupil_session_quality.py). fullpupil_source.json records the inputs (sha1 of
@@ -47,6 +53,8 @@ DERIVED = CC.DERIVED
 SUFFIX, TMP_PREFIX = CC.FULL, "_fullpupil_tmp_"
 MATLAB_TIMEOUT_S = 3600
 MAX_NAN_FRAC, MIN_MEDIAN_PX = 0.5, 10.0     # quality gate before a trace goes into Step 02
+MICE_LIST, CHECK_FILE = "fullpupil_mice.csv", "fullpupil_check.csv"
+CHECK_PX = 60.0     # the package's tracker cannot report a pupil wider than 60 px (step 3: 30-px search radius)
 FLAG_RING_DARK, FLAG_RING_CONTRAST = 0.40, 0.17
 COLMAP = {"PupilTimestamp_s": "Timestamp_seconds", "Diameter_px": "SmoothedDiameter_px", "CenterX_px": "CenterX_px",
           "CenterY_px": "CenterY_px", "UsedScoreFallback": "UsedScoreFallback"}
@@ -111,6 +119,29 @@ def dark_area(C):
     return ndi.binary_fill_holes(m | (mc & G)), S, G
 
 
+def darkest_part(C, A, S, G, seed_yx):
+    """diameter (px) of the black region around the tracker's pupil: inside the dark area A, pixels darker than halfway
+    between its darkest 5 % and its 75th percentile, opened (disk 3), the piece at the tracker's centre, holes filled.
+    In a normal eye this is the pupil (about 20-30 px on this rig); when the pupil is fully dilated it is the large black
+    region (60-95 px on days 1-2), i.e. larger than the 60 px the package's tracker can report."""
+    from scipy import ndimage as ndi
+    v = S[A & ~G]
+    if v.size < 50:
+        return np.nan
+    dark, mid = np.percentile(v, 5), np.percentile(v, 75)
+    B = ((S < dark + 0.5 * (mid - dark)) | G) & A
+    B = ndi.binary_opening(B, _disk(3))
+    lab, n = ndi.label(B)
+    if n == 0:
+        return np.nan
+    sy, sx = int(np.clip(round(seed_yx[0]), 0, B.shape[0] - 1)), int(np.clip(round(seed_yx[1]), 0, B.shape[1] - 1))
+    l = lab[sy, sx]
+    if l == 0:   # nearest piece to the tracker's centre
+        idx = ndi.distance_transform_edt(lab == 0, return_indices=True)[1]
+        l = lab[idx[0][sy, sx], idx[1][sy, sx]]
+    return 2 * np.sqrt(ndi.binary_fill_holes(lab == l).sum() / np.pi)
+
+
 def screen_session(sd: Path, nf=40):
     import imageio_ffmpeg
     from scipy import ndimage as ndi
@@ -142,12 +173,70 @@ def screen_session(sd: Path, nf=40):
         pl, sk = np.median(S[blob & ~G]) if (blob & ~G).any() else np.median(S[blob]), np.median(S[out])
         span = max(1.0, sk - pl)
         rows.append(dict(full_px=2 * np.sqrt(A.sum() / np.pi), unet_px=r["best_diam_px"],
+                         darkest_px=darkest_part(C, A, S, G, (r["best_cy_px"] - 1, r["best_cx_px"] - 1)),
                          ring_contrast=(np.median(S[ring]) - pl) / span, ring_dark=float(np.mean(S[ring] < pl + 0.15 * span))))
     if not rows:
         return None
     R = pd.DataFrame(rows)
-    return dict(frames=len(R), unet_px=R.unet_px.median(), full_px=R.full_px.median(),
+    return dict(frames=len(R), unet_px=R.unet_px.median(), full_px=R.full_px.median(), darkest_px=R.darkest_px.median(),
+                darkest_q25=R.darkest_px.quantile(0.25), darkest_q75=R.darkest_px.quantile(0.75),
                 ring_contrast=R.ring_contrast.median(), ring_dark=R.ring_dark.median())
+
+
+# ----------------------------------------------------------------------------- 1b) mouse option (automatic)
+def mouse_option(root: Path, dry: bool) -> list:
+    """Mice listed in fullpupil_mice.csv (cage, mouse, approved, check_60px, reason): EVERY session of such a mouse is
+    looked at automatically. With check_60px = yes (default) the session gets the full-pupil measure only when the
+    black region around the tracker's pupil is larger than 60 px (the largest pupil the package can report), as a
+    median over 40 frames; otherwise the package's pupil is kept. With check_60px = no every session of the mouse gets
+    it. Writes fullpupil_auto.csv (the sessions it approves; read by concat_choice.py like fullpupil_sessions.csv, an
+    explicit 'no' row there wins) and fullpupil_check.csv (every check with its numbers). A check is re-done only when
+    the package re-tracked the session."""
+    opts = [o for o in CC.read_rows(root / MICE_LIST, need=("cage", "mouse")) if CC.is_approved(o.get("approved"))]
+    cache = {}
+    for r in CC.read_rows(root / CHECK_FILE, warn=None):
+        if str(r["day"]).strip().isdigit():
+            cache[CC.norm_key(r["day"], r["cage"], r["mouse"])] = r
+    auto_rows, check_rows, msgs = [], [], []
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    for o in opts:
+        need_check = str(o.get("check_60px", "yes")).strip().lower() not in ("no", "n", "false", "0")
+        cage, mouse = o["cage"].strip(), o["mouse"].strip()
+        for ddir in sorted(p for p in root.glob("day*") if p.is_dir() and p.name[3:].isdigit()):
+            day = int(ddir.name[3:])
+            sd = CC.session_dir(root, day, cage, mouse)
+            pc = sd / "pupil_outputs_general" / "pupil_diameter_FINAL_U-Net_results_CLEAN.csv" if sd else None
+            if pc is None or not pc.exists():
+                continue
+            key, pkg = CC.norm_key(day, cage, mouse), CC.sha1(pc)
+            dk, nfr = np.nan, 0
+            if need_check:
+                c = cache.get(key)
+                if c and c.get("package_clean_sha1") == pkg and str(c.get("darkest_px", "")).strip() not in ("", "nan"):
+                    dk, nfr = float(c["darkest_px"]), int(float(c.get("frames") or 0))
+                else:
+                    try:
+                        s = screen_session(sd)
+                        dk, nfr = (float(s["darkest_px"]), int(s["frames"])) if s else (np.nan, 0)
+                    except Exception as exc:   # noqa: BLE001
+                        msgs.append(f"  !! mouse option day{day} {cage}_{mouse}: size check failed ({exc}) -> package pupil")
+                passed = bool(np.isfinite(dk) and dk > CHECK_PX)
+                why = f"black pupil region {dk:.0f} px {'>' if passed else '<='} {CHECK_PX:.0f} px (median of {nfr} frames)"
+            else:
+                passed, why = True, "mouse option without the size check (check_60px = no)"
+            check_rows.append(dict(day=day, cage=cage, mouse=mouse, package_clean_sha1=pkg,
+                                   darkest_px="" if not np.isfinite(dk) else round(dk, 1), frames=nfr,
+                                   decision="full pupil" if passed else "package pupil", reason=why, checked=now))
+            if passed:
+                auto_rows.append(dict(day=day, cage=cage, mouse=mouse, approved=f"yes (auto: {MICE_LIST})", reason=why))
+            msgs.append(f"  mouse option day{day} {cage}_{mouse}: {why} -> {'full pupil' if passed else 'package pupil'}")
+    if not dry and (opts or (root / CC.AUTO_FULL).exists()):
+        for name, rows, cols in ((CC.AUTO_FULL, auto_rows, ["day", "cage", "mouse", "approved", "reason"]),
+                                 (CHECK_FILE, check_rows, ["day", "cage", "mouse", "decision", "darkest_px", "frames",
+                                                           "reason", "package_clean_sha1", "checked"])):
+            with open(root / name, "w", newline="", encoding="utf-8") as f:   # rewritten: a removed option has no effect
+                w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore"); w.writeheader(); w.writerows(rows)
+    return msgs
 
 
 # ----------------------------------------------------------------------------- 2) approved sessions
@@ -361,7 +450,9 @@ def main(argv=None):
                           f"the session to fullpupil_sessions.csv")
     if a.screen_only:
         return 0
-    listed = CC.approved_sessions(root, CC.LISTS[CC.FULL])          # (day, cage, mouse) in lower case; never raises
+    for m in mouse_option(root, a.dry_run):                         # fullpupil_mice.csv -> fullpupil_auto.csv
+        print(m)
+    listed = CC.approved_sessions(root, CC.LISTS[CC.FULL])          # explicit + automatic; (day, cage, mouse) lower case
     sync_ok = CC.approved_sessions(root, CC.LISTS[CC.SYNC])
     wf, mexe = workflow_dir(), matlab_exe()
     for key in sorted(listed):

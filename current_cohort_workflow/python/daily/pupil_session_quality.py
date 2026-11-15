@@ -160,7 +160,8 @@ def main(argv=None):
     outp = root / "pupil_session_quality.csv"
     old = pd.read_csv(outp, dtype={"cage": str, "mouse": str}) if outp.exists() else pd.DataFrame()
     approvals = {suf: CC.approved_sessions(root, name) for suf, name in CC.LISTS.items()}   # never raises
-    full_ok = approvals[CC.FULL]
+    full_ok = approvals[CC.FULL]                    # fullpupil_sessions.csv + the mouse option (fullpupil_auto.csv)
+    auto_full = CC.auto_full_sessions(root)         # {key: reason} approved only by the mouse option
     rows = []
     for q in sorted(root.glob("day*/*/*/pupil_outputs_general/qc.json")):
         day_s, cage, mouse = q.parts[-5], q.parts[-4], q.parts[-3]
@@ -219,6 +220,10 @@ def main(argv=None):
                 r.update(grade="check", grade_source="fullpupil_sessions.csv",
                          reason="listed for the full-pupil measure, but its trace is missing or no longer matches the "
                                 "package's output (re-tracked?): run fullpupil_sessions.py")
+            elif CC.norm_key(day, cage, mouse) in auto_full:
+                r.update(grade="full_pupil", grade_source="fullpupil_mice.csv (automatic)",
+                         reason=f"fully dilated pupil, found by the mouse option ({auto_full[CC.norm_key(day, cage, mouse)]}); "
+                                f"whole dark area inside the lids, median {r['fullpupil_median_px']:.0f} px")
             elif r["grade"] != "full_pupil":
                 r.update(grade="full_pupil", grade_source="fullpupil_sessions.csv",
                          reason=f"fully dilated pupil: whole dark area inside the lids, median "

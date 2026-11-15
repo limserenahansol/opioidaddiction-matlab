@@ -94,6 +94,12 @@ Three sessions of one cage are too few to learn this.
 - A trace is not published to Step 02 when more than half of its frames have no value, or when its median is under 10 px.
 - `../python/daily/fullpupil_sessions.py` runs it and writes a Step 02 copy of the newest table in which only the pupil columns are replaced.
 
+**Mouse option with a 60-px check (automatic).**
+- The size check is the median diameter of the black region around the tracker's pupil, over 40 frames.
+- A mouse with a fully dilated pupil on some days can be listed in `fullpupil_mice.csv`. Each of its sessions then gets the full-pupil measure only when that check is above 60 px, the largest pupil the package can report.
+- On days 1-2 the 3 listed mice gave 18-56 px on the normal day 1 and 69-93 px on the dilated day 2.
+- Some narrowed or inflamed eyes of other mice also gave more than 60 px (62 and 81 px). So the check is used only for listed mice, never for all sessions.
+
 **Screening (an option, not run daily).** `fullpupil_sessions.py --screen-only` looks for such sessions. Fully dilated pupils are rare, so the measurement is an option for listed sessions, not a rule for all sessions. The screen's test: when the ring just outside the tracked pupil is as dark as the pupil, there is no lighter iris around it.
 - On days 1-2 the screen flagged the 3 fully dilated sessions and 3 normal ones; the numbers overlap.
 - So a flag only asks for a look; it never changes the measurement.
