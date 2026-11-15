@@ -14,12 +14,18 @@ listed in fullpupil_sessions.csv, and the screen below runs only when asked (--s
    iris; when the pupil fills the eye the ring is as dark as the pupil. Writes <pupil_root>/fullpupil_screen.csv; a
    session with ring_dark >= 0.40 and ring_contrast <= 0.17 (medians) is listed as "look at it" - nothing is changed.
    (On the first cohort days it flagged every fully dilated session, but also some normal eyes: a look decides.)
-1b) MOUSE OPTION (automatic; <pupil_root>/fullpupil_mice.csv: cage, mouse, approved, check_60px, reason): every
-   session of a listed mouse is looked at on every run. With check_60px = yes (default) a session gets the full-pupil
-   measure only when the black region around the tracker's pupil is larger than 60 px - the largest pupil the
-   package's tracker can report - as a median over 40 frames (days 1-2: normal days 18-56 px, dilated days 69-93 px);
-   otherwise the package's pupil is kept. The decisions go to fullpupil_auto.csv / fullpupil_check.csv. An explicit
-   row in fullpupil_sessions.csv that is not approved ('no ...') overrides an automatic yes.
+1b) MOUSE OPTION (automatic; <pupil_root>/fullpupil_mice.csv: cage, mouse, approved, check_60px, switch, reason):
+   every session of a listed mouse gets the full-pupil pass, which also measures on every frame the black region
+   around the package tracker's pupil. With check_60px = yes (default):
+   * switch = session (default): one decision per session - the full pupil when the session median of that black
+     region is larger than 60 px (the largest pupil the package's tracker can report), else the package's pupil
+     (days 1-2: normal days 18-57 px, dilated days 70-94 px). Minutes that disagree with the rest are reported (!!).
+   * switch = minute: a 1-minute switch (pupil_switch_CLEAN.csv). On days 1-2 it gave false minutes on normal days
+     (a dark band merged with a normal pupil; a wrong tracker centre) and missed a dilated minute with a half-closed
+     eye, so it is off unless chosen.
+   The decisions go to fullpupil_auto.csv / fullpupil_check.csv (+ per session pupil_outputs_fullpupil/
+   fullpupil_minutes.csv). An explicit row in fullpupil_sessions.csv that is not approved ('no ...') overrides an
+   automatic yes.
 2) LISTED sessions (<pupil_root>/fullpupil_sessions.csv: day, cage, mouse, approved, reason; a row counts only when
    'approved' starts with 'yes' or a date YYYY-MM-DD; see concat_choice.py), plus the sessions of 1b:
    a) current_cohort_workflow/matlab/pupil_fullpupil_session.m -> <session>/pupil_outputs_fullpupil/
@@ -184,57 +190,172 @@ def screen_session(sd: Path, nf=40):
 
 
 # ----------------------------------------------------------------------------- 1b) mouse option (automatic)
-def mouse_option(root: Path, dry: bool) -> list:
+SWITCH_CSV, SWITCH_JSON, MINUTES_CSV = CC.SWITCH_CSV, CC.SWITCH_JSON, "fullpupil_minutes.csv"
+MIN_VALID = 0.3     # a minute needs a black-region value in >= 30 % of its frames, else it keeps the previous decision
+
+
+def minute_decisions(sd: Path, root: Path, need_check: bool) -> pd.DataFrame:
+    """one row per real minute of the session: frames, black pupil region (darkest_px of fullpupil_raw.csv, median),
+    full = the pupil fills the eye in that minute (median > 60 px; without the check: always)"""
+    raw = pd.read_csv(sd / OUT_DIR / "fullpupil_raw.csv")
+    n = len(raw)
+    dt = np.nan
+    base = base_table(sd, root)
+    if base is not None:
+        cam = pd.to_numeric(pd.read_csv(base / "combined_pupil_digital.csv", usecols=["CamTime_s"])["CamTime_s"],
+                            errors="coerce")
+        d = np.diff(cam.dropna().to_numpy())
+        dt = float(np.median(d)) if d.size else np.nan
+    if not np.isfinite(dt) or dt <= 0:
+        dt = 1 / 30.26                                        # the camera rate of this rig
+    minute = (np.arange(n) * dt // 60).astype(int)
+    dk = pd.to_numeric(raw["darkest_px"], errors="coerce").to_numpy() if "darkest_px" in raw else np.full(n, np.nan)
+    rows, prev = [], False
+    for m in range(int(minute.max()) + 1):
+        sel = minute == m
+        if not sel.any():
+            continue
+        v = dk[sel]
+        ok = np.isfinite(v)
+        med = float(np.median(v[ok])) if ok.any() else np.nan
+        if not need_check:
+            full, why = True, "no size check"
+        elif ok.mean() >= MIN_VALID:
+            full, why = bool(med > CHECK_PX), ""
+        else:
+            full, why = prev, "too few values: previous minute's decision"
+        prev = full
+        idx = np.flatnonzero(sel)
+        rows.append(dict(minute=m + 1, t0_s=round(m * 60.0, 1), first_frame=int(idx[0]) + 1, last_frame=int(idx[-1]) + 1,
+                         frames=int(sel.sum()), valid=int(ok.sum()),
+                         darkest_median_px=round(med, 1) if np.isfinite(med) else np.nan, full_pupil=full, note=why))
+    return pd.DataFrame(rows)
+
+
+def write_switch(sd: Path, M: pd.DataFrame) -> str:
+    """pupil_switch_CLEAN.csv: the package's CLEAN rows, with the full-pupil rows in the minutes where the pupil fills the
+    eye (text copied; column PupilSource = full / package). fullpupil_switch.json records what it was made from."""
+    od, g = sd / OUT_DIR, sd / "pupil_outputs_general"
+    ph, prow, nl = read_text_csv(g / "pupil_diameter_FINAL_U-Net_results_CLEAN.csv")
+    fh, frow, _ = read_text_csv(od / CLEAN)
+    if ph != fh or len(prow) != len(frow):
+        raise RuntimeError(f"package CLEAN ({len(prow)} rows) and full-pupil CLEAN ({len(frow)} rows) do not match")
+    full = np.zeros(len(prow), bool)
+    for r in M.itertuples():
+        if r.full_pupil:
+            full[r.first_frame - 1:r.last_frame] = True
+    tmp = od / (SWITCH_CSV + ".tmp")
+    with open(tmp, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f, lineterminator=nl)
+        w.writerow(ph + ["PupilSource"])
+        for i, (a_row, b_row) in enumerate(zip(prow, frow)):
+            w.writerow((b_row if full[i] else a_row) + ["full" if full[i] else "package"])
+    tmp.replace(od / SWITCH_CSV)
+    M.to_csv(od / MINUTES_CSV, index=False)
+    (od / SWITCH_JSON).write_text(json.dumps({
+        "package_clean_sha1": sha1(g / "pupil_diameter_FINAL_U-Net_results_CLEAN.csv"),
+        "trace_clean_sha1": sha1(od / CLEAN), "switch_sha1": sha1(od / SWITCH_CSV),
+        "minutes": int(len(M)), "minutes_full": int(M.full_pupil.sum()), "frames_full": int(full.sum()),
+        "rule": f"1-minute median of the black pupil region > {CHECK_PX:.0f} px",
+        "made": datetime.now().isoformat(timespec="seconds")}, indent=1), encoding="utf-8")
+    return f"{int(M.full_pupil.sum())} of {len(M)} minutes full pupil"
+
+
+def mouse_option(root: Path, wf, mexe, dry: bool, jobs: int = 3) -> list:
     """Mice listed in fullpupil_mice.csv (cage, mouse, approved, check_60px, reason): EVERY session of such a mouse is
-    looked at automatically. With check_60px = yes (default) the session gets the full-pupil measure only when the
-    black region around the tracker's pupil is larger than 60 px (the largest pupil the package can report), as a
-    median over 40 frames; otherwise the package's pupil is kept. With check_60px = no every session of the mouse gets
-    it. Writes fullpupil_auto.csv (the sessions it approves; read by concat_choice.py like fullpupil_sessions.csv, an
-    explicit 'no' row there wins) and fullpupil_check.csv (every check with its numbers). A check is re-done only when
-    the package re-tracked the session."""
+    measured automatically, minute by minute.
+    * The full-pupil pass (pupil_fullpupil_session.m) runs on each of its sessions (`jobs` at a time); it also gives,
+      per frame, the black region around the package tracker's pupil.
+    * check_60px = yes (default): every real minute whose median black region is larger than 60 px - the largest pupil
+      the package's tracker can report - uses the full pupil, the other minutes keep the package's pupil
+      (pupil_switch_CLEAN.csv). So a pupil that dilates during a session, or a day unlike the previous one, is handled
+      on its own. check_60px = no: every minute uses the full pupil.
+    * Sessions with at least one full minute go to fullpupil_auto.csv (read by concat_choice.py; an explicit 'no' row
+      in fullpupil_sessions.csv wins). Every session's result goes to fullpupil_check.csv and to
+      <session>/pupil_outputs_fullpupil/fullpupil_minutes.csv."""
     opts = [o for o in CC.read_rows(root / MICE_LIST, need=("cage", "mouse")) if CC.is_approved(o.get("approved"))]
-    cache = {}
-    for r in CC.read_rows(root / CHECK_FILE, warn=None):
-        if str(r["day"]).strip().isdigit():
-            cache[CC.norm_key(r["day"], r["cage"], r["mouse"])] = r
-    auto_rows, check_rows, msgs = [], [], []
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    sessions, unit = [], {}
     for o in opts:
         need_check = str(o.get("check_60px", "yes")).strip().lower() not in ("no", "n", "false", "0")
-        cage, mouse = o["cage"].strip(), o["mouse"].strip()
+        # decision unit: 'session' (default) = one decision for the whole session (median of all frames), or
+        # 'minute' = the 1-minute switch. On days 1-2 the minute switch gave false minutes on normal days (a dark band
+        # merged with a normal pupil; a wrong tracker centre) and missed a dilated minute with a half-closed eye, so it
+        # is only used when the 'switch' column says minute.
+        u = "minute" if str(o.get("switch", "")).strip().lower().startswith("min") else "session"
         for ddir in sorted(p for p in root.glob("day*") if p.is_dir() and p.name[3:].isdigit()):
-            day = int(ddir.name[3:])
-            sd = CC.session_dir(root, day, cage, mouse)
-            pc = sd / "pupil_outputs_general" / "pupil_diameter_FINAL_U-Net_results_CLEAN.csv" if sd else None
-            if pc is None or not pc.exists():
-                continue
-            key, pkg = CC.norm_key(day, cage, mouse), CC.sha1(pc)
-            dk, nfr = np.nan, 0
-            if need_check:
-                c = cache.get(key)
-                if c and c.get("package_clean_sha1") == pkg and str(c.get("darkest_px", "")).strip() not in ("", "nan"):
-                    dk, nfr = float(c["darkest_px"]), int(float(c.get("frames") or 0))
-                else:
-                    try:
-                        s = screen_session(sd)
-                        dk, nfr = (float(s["darkest_px"]), int(s["frames"])) if s else (np.nan, 0)
-                    except Exception as exc:   # noqa: BLE001
-                        msgs.append(f"  !! mouse option day{day} {cage}_{mouse}: size check failed ({exc}) -> package pupil")
-                passed = bool(np.isfinite(dk) and dk > CHECK_PX)
-                why = f"black pupil region {dk:.0f} px {'>' if passed else '<='} {CHECK_PX:.0f} px (median of {nfr} frames)"
+            sd = CC.session_dir(root, int(ddir.name[3:]), o["cage"].strip(), o["mouse"].strip())
+            if sd is not None and (sd / "pupil_outputs_general" / "pupil_diameter_FINAL_U-Net_results_CLEAN.csv").exists():
+                k = CC.norm_key(ddir.name[3:], o["cage"], o["mouse"])
+                sessions.append((k, sd, need_check))
+                unit[k] = u
+    msgs = []
+    if wf is not None and not dry and sessions:
+        from concurrent.futures import ThreadPoolExecutor
+
+        def one(item):
+            key, sd, _ = item
+            try:
+                return key, make_trace(sd, wf, mexe, False)
+            except Exception as exc:   # noqa: BLE001
+                return key, f"FAILED ({exc})"
+        with ThreadPoolExecutor(max_workers=max(1, jobs)) as ex:
+            for key, m in ex.map(one, sessions):
+                if m != "up to date":
+                    msgs.append(f"  mouse option day{key[0]} {key[1]}_{key[2]}: full-pupil pass {m}")
+    auto_rows, check_rows = [], []
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    for key, sd, need_check in sessions:
+        name = f"day{key[0]} {key[1]}_{key[2]}"
+        rawp = sd / OUT_DIR / "fullpupil_raw.csv"
+        if not (CC.fullpupil_trace_valid(sd) and rawp.exists() and "darkest_px" in pd.read_csv(rawp, nrows=1).columns):
+            msgs.append(f"  {'' if dry else '!! '}mouse option {name}: no valid full-pupil pass yet -> package pupil"
+                        + (" (dry run)" if dry else ""))
+            check_rows.append(dict(day=key[0], cage=key[1], mouse=key[2], decision="package pupil",
+                                   reason="no valid full-pupil pass", checked=now))
+            continue
+        M = minute_decisions(sd, root, need_check)
+        nover, nmin = int(M.full_pupil.sum()), len(M)
+        meds = pd.to_numeric(M.darkest_median_px, errors="coerce")
+        allv = pd.to_numeric(pd.read_csv(rawp, usecols=["darkest_px"])["darkest_px"], errors="coerce")
+        sess_med = float(allv.median()) if allv.notna().any() else np.nan
+        if unit[key] == "session":
+            # one decision for the whole session; the minutes are only reported (a change inside the session is listed)
+            whole = (not need_check) or bool(np.isfinite(sess_med) and sess_med > CHECK_PX)
+            M["full_pupil"] = whole
+            nfull = nmin if whole else 0
+            detail = (f"session median black pupil region {sess_med:.0f} px {'>' if whole else '<='} {CHECK_PX:.0f} px "
+                      f"(per minute {meds.min():.0f}-{meds.max():.0f} px; {nover} of {nmin} minutes > {CHECK_PX:.0f})"
+                      if need_check else f"no size check: whole session")
+            if need_check and 0 < nover < nmin:
+                msgs.append(f"  !! mouse option {name}: {nover} of {nmin} minutes are over {CHECK_PX:.0f} px and the rest "
+                            "not - look at fullpupil_minutes.csv and the frames (a change inside the session?)")
+        else:
+            nfull = nover
+            detail = (f"black pupil region per minute {meds.min():.0f}-{meds.max():.0f} px; {nfull} of {nmin} minutes > "
+                      f"{CHECK_PX:.0f} px" if need_check else f"no size check: all {nmin} minutes")
+        decision = "package pupil" if nfull == 0 else ("full pupil" if nfull == nmin else "switch (minute by minute)")
+        if not dry:
+            if nfull:
+                write_switch(sd, M)
             else:
-                passed, why = True, "mouse option without the size check (check_60px = no)"
-            check_rows.append(dict(day=day, cage=cage, mouse=mouse, package_clean_sha1=pkg,
-                                   darkest_px="" if not np.isfinite(dk) else round(dk, 1), frames=nfr,
-                                   decision="full pupil" if passed else "package pupil", reason=why, checked=now))
-            if passed:
-                auto_rows.append(dict(day=day, cage=cage, mouse=mouse, approved=f"yes (auto: {MICE_LIST})", reason=why))
-            msgs.append(f"  mouse option day{day} {cage}_{mouse}: {why} -> {'full pupil' if passed else 'package pupil'}")
+                M.to_csv(sd / OUT_DIR / MINUTES_CSV, index=False)
+                for fn in (SWITCH_CSV, SWITCH_JSON):          # an old switch of this session is no longer valid
+                    if (sd / OUT_DIR / fn).exists():
+                        (sd / OUT_DIR / fn).unlink()
+        check_rows.append(dict(day=key[0], cage=key[1], mouse=key[2], decision=decision, unit=unit[key], minutes=nmin,
+                               minutes_over_60px=nover, minutes_full=nfull,
+                               session_median_px="" if not np.isfinite(sess_med) else round(sess_med, 1),
+                               reason=detail, checked=now))
+        if nfull:
+            auto_rows.append(dict(day=key[0], cage=key[1], mouse=key[2], approved=f"yes (auto: {MICE_LIST})",
+                                  reason=f"{decision}: {detail}"))
+        msgs.append(f"  mouse option {name}: {detail} -> {decision}")
     if not dry and (opts or (root / CC.AUTO_FULL).exists()):
-        for name, rows, cols in ((CC.AUTO_FULL, auto_rows, ["day", "cage", "mouse", "approved", "reason"]),
-                                 (CHECK_FILE, check_rows, ["day", "cage", "mouse", "decision", "darkest_px", "frames",
-                                                           "reason", "package_clean_sha1", "checked"])):
-            with open(root / name, "w", newline="", encoding="utf-8") as f:   # rewritten: a removed option has no effect
+        for fname, rows, cols in ((CC.AUTO_FULL, auto_rows, ["day", "cage", "mouse", "approved", "reason"]),
+                                  (CHECK_FILE, check_rows, ["day", "cage", "mouse", "decision", "unit", "minutes",
+                                                            "minutes_over_60px", "minutes_full", "session_median_px",
+                                                            "reason", "checked"])):
+            with open(root / fname, "w", newline="", encoding="utf-8") as f:   # rewritten: a removed option has no effect
                 w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore"); w.writeheader(); w.writerows(rows)
     return msgs
 
@@ -315,13 +436,15 @@ def make_step02_copy(sd: Path, root: Path, dry: bool, needs_sync: bool = False) 
     if needs_sync and not B.name.endswith("_syncaligned"):
         # the session is also approved for the alignment fix: build on its checked sync-aligned copy only
         raise RuntimeError(f"the alignment fix is approved but the newest table is {B.name}: run fix_concat_alignment.py first")
-    if not CC.fullpupil_trace_valid(sd):
+    fclean = CC.fullpupil_pupil_csv(sd, root)   # explicit row: whole-session full pupil; mouse option: the 1-min switch
+    if fclean is None:
         if dry:
             return f"would write a full-pupil Step 02 copy of {B.name} once the trace is (re)made"
-        raise RuntimeError("the full-pupil trace is missing or no longer matches the package's output: not published")
-    fclean = sd / OUT_DIR / CLEAN
+        raise RuntimeError("the full-pupil trace (or its minute switch) is missing or no longer matches the package's "
+                           "output: not published")
     qc = json.loads((sd / OUT_DIR / "fullpupil_qc.json").read_text(encoding="utf-8"))
-    nan_frac, med = float(qc.get("fracNaN", 0) or 0), float(qc.get("medianDiameter", np.nan))
+    sm = pd.to_numeric(pd.read_csv(fclean, usecols=["SmoothedDiameter_px"])["SmoothedDiameter_px"], errors="coerce")
+    nan_frac, med = float(sm.isna().mean()), float(sm.median())
     if not (nan_frac <= MAX_NAN_FRAC and np.isfinite(med) and med >= MIN_MEDIAN_PX):
         raise RuntimeError(f"poor trace (frames without a value {100 * nan_frac:.0f} %, median {med:.1f} px): not published "
                            "to Step 02 - look at pupil_outputs_fullpupil/fullpupil_sheet.png")
@@ -379,8 +502,11 @@ def make_step02_copy(sd: Path, root: Path, dry: bool, needs_sync: bool = False) 
             elif ln.startswith("Figure FIG:"):
                 continue                                         # no .fig in the copy (the PNG is made again below)
             lines.append(ln.replace(B.name, final.name))
+        how = ("minute by minute: the full pupil where the black pupil region is > 60 px, else the package's pupil "
+               "(mouse option, fullpupil_mice.csv)" if fclean.name == SWITCH_CSV else
+               "the whole session (a session approved in fullpupil_sessions.csv)")
         lines.append(f"Pupil columns replaced ({datetime.now():%Y-%m-%d %H:%M}) by the full-pupil measure (whole dark "
-                     f"area inside the lids, a session listed in fullpupil_sessions.csv); all other columns are those of "
+                     f"area inside the lids) from {fclean.name}, {how}; all other columns are those of "
                      f"{B.name}. Frames without a value: {100 * nan_frac:.1f} % (gaps > 1 s are left empty).")
         (tmp / "summary.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
         T2 = pd.read_csv(tmp / "combined_pupil_digital.csv")
@@ -414,6 +540,7 @@ def main(argv=None):
     ap.add_argument("--screen-only", action="store_true", help="only the screen, no traces or Step 02 copies")
     ap.add_argument("--no-screen", action="store_true", help="(old flag; the screen is off unless --screen)")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--jobs", type=int, default=3, help="full-pupil passes (MATLAB) at the same time for the mouse option")
     a = ap.parse_args(argv)
     root = a.pupil_root or a.project / "pupil_tst_final"
     bad = 0
@@ -450,11 +577,11 @@ def main(argv=None):
                           f"the session to fullpupil_sessions.csv")
     if a.screen_only:
         return 0
-    for m in mouse_option(root, a.dry_run):                         # fullpupil_mice.csv -> fullpupil_auto.csv
+    wf, mexe = workflow_dir(), matlab_exe()
+    for m in mouse_option(root, wf, mexe, a.dry_run, a.jobs):      # fullpupil_mice.csv -> fullpupil_auto.csv
         print(m)
     listed = CC.approved_sessions(root, CC.LISTS[CC.FULL])          # explicit + automatic; (day, cage, mouse) lower case
     sync_ok = CC.approved_sessions(root, CC.LISTS[CC.SYNC])
-    wf, mexe = workflow_dir(), matlab_exe()
     for key in sorted(listed):
         sd = CC.session_dir(root, *key)
         name = f"day{key[0]} {key[1]}_{key[2]}"

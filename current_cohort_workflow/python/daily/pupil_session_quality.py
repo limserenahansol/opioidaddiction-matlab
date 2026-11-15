@@ -207,23 +207,27 @@ def main(argv=None):
         # area inside the lids (fullpupil_sessions.py -> pupil_outputs_fullpupil); grade full_pupil = used, marked
         fpd = q.parent.parent / "pupil_outputs_fullpupil"
         listed = CC.norm_key(day, cage, mouse) in full_ok
-        fp_ok = listed and CC.fullpupil_trace_valid(q.parent.parent)   # made from the package's CURRENT output
+        # the pupil file of the option (whole session, or the mouse option's 1-minute switch), made from the CURRENT
+        # package output; None when missing or out of date
+        fp_csv = CC.fullpupil_pupil_csv(q.parent.parent, root) if listed else None
+        fp_ok = fp_csv is not None
         r["fullpupil_median_px"] = np.nan
         if fp_ok:
             try:
-                r["fullpupil_median_px"] = float(json.loads((fpd / "fullpupil_qc.json").read_text(encoding="utf-8"))
-                                                 .get("medianDiameter", np.nan))
+                r["fullpupil_median_px"] = float(pd.to_numeric(pd.read_csv(fp_csv, usecols=["SmoothedDiameter_px"])
+                                                               ["SmoothedDiameter_px"], errors="coerce").median())
             except (ValueError, OSError):
                 pass
         if listed:
             if not fp_ok:
                 r.update(grade="check", grade_source="fullpupil_sessions.csv",
-                         reason="listed for the full-pupil measure, but its trace is missing or no longer matches the "
-                                "package's output (re-tracked?): run fullpupil_sessions.py")
+                         reason="listed for the full-pupil measure, but its trace (or minute switch) is missing or no "
+                                "longer matches the package's output (re-tracked?): run fullpupil_sessions.py")
             elif CC.norm_key(day, cage, mouse) in auto_full:
-                r.update(grade="full_pupil", grade_source="fullpupil_mice.csv (automatic)",
-                         reason=f"fully dilated pupil, found by the mouse option ({auto_full[CC.norm_key(day, cage, mouse)]}); "
-                                f"whole dark area inside the lids, median {r['fullpupil_median_px']:.0f} px")
+                r.update(grade="full_pupil", grade_source="fullpupil_mice.csv (automatic, minute by minute)",
+                         reason=f"pupil fills the eye in part or all of the session ({auto_full[CC.norm_key(day, cage, mouse)]}); "
+                                f"those minutes use the whole dark area inside the lids, the others the package's pupil; "
+                                f"median {r['fullpupil_median_px']:.0f} px")
             elif r["grade"] != "full_pupil":
                 r.update(grade="full_pupil", grade_source="fullpupil_sessions.csv",
                          reason=f"fully dilated pupil: whole dark area inside the lids, median "

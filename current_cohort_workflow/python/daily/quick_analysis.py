@@ -425,9 +425,15 @@ def find_pupil(pupil_root: Path, day_folder: str, session: str):
     if d.is_dir():
         # fully dilated pupil (grade full_pupil, a session the user approved in fullpupil_sessions.csv; 2026-11-15):
         # the pupil is the whole dark area inside the lids, measured by pupil_fullpupil_session.m
-        fp = d / FULLPUPIL_DIR / FULLPUPIL_CSV
-        if fp.exists() and pupil_grade(pupil_root, day_folder)[0] == "full_pupil":
-            return fp
+        # (an approved session: the whole session; the mouse option: the minute-by-minute switch, concat_choice.py)
+        if pupil_grade(pupil_root, day_folder)[0] == "full_pupil":
+            try:
+                import concat_choice as CC
+                fp = CC.fullpupil_pupil_csv(d, pupil_root)
+            except Exception:   # noqa: BLE001
+                fp = None
+            if fp is not None:
+                return fp
         oc = sorted(d.rglob(ONE_CLICK_CSV), key=lambda p: p.stat().st_mtime)
         if oc:
             return oc[-1]

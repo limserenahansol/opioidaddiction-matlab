@@ -68,7 +68,11 @@ flowchart TB
      - If an approved session's newest table is the package's again, `prepare_step02_base.py` leaves that session as it is until the fix has been re-applied.
    - **Fully dilated pupils (an option for rare sessions).** When the whole eye is dark, the pupil is the whole dark area inside the lids. The package cannot measure this (see `pupil_finetune/README.md`).
      - Only sessions the user lists in `pupil_tst_final\fullpupil_sessions.csv` are measured this way (`fullpupil_sessions.py` -> `pupil_outputs_fullpupil\`). They get the grade `full_pupil` (used, marked), and Step 02 reads a `concat_out_<stamp>_fullpupil` copy.
-     - **Mouse option (automatic).** For mice listed in `pupil_tst_final\fullpupil_mice.csv`, every session on every day is checked. It gets the full-pupil measure only when the black region around the tracker's pupil is larger than 60 px, the largest pupil the package can report (median over 40 frames).
+     - **Mouse option (automatic).** For mice listed in `pupil_tst_final\fullpupil_mice.csv`, every session on every day is checked.
+       - The full-pupil pass also measures, on every frame, the black region around the tracker's pupil.
+       - With `switch = session` (default), a session gets the full-pupil measure only when its median black region is larger than 60 px, the largest pupil the package can report.
+       - Minutes that disagree with the rest are reported.
+       - `switch = minute` switches minute by minute. It is off by default: on days 1-2 it gave false minutes on normal days and missed a dilated minute with a half-closed eye.
        - The decisions are written to `fullpupil_check.csv` and `fullpupil_auto.csv`.
        - An explicit `no` row in `fullpupil_sessions.csv` wins over an automatic yes.
        - The check is used only for the listed mice, because some narrowed or inflamed eyes also pass 60 px.

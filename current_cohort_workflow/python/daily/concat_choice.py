@@ -23,6 +23,8 @@ LISTS = {SYNC: "alignment_fixes.csv", FULL: "fullpupil_sessions.csv"}
 # sessions approved automatically by a mouse-level option (fullpupil_mice.csv; fullpupil_sessions.py writes this file):
 # they count like rows of fullpupil_sessions.csv unless that list has a row for the session that is NOT approved
 AUTO_FULL = "fullpupil_auto.csv"
+# a mouse-option session uses a minute-by-minute switch between the full pupil and the package's pupil
+SWITCH_CSV, SWITCH_JSON = "pupil_switch_CLEAN.csv", "fullpupil_switch.json"
 _STAMP = re.compile(r"concat_out_(\d{8}_\d{6})")
 
 
@@ -153,6 +155,38 @@ def fullpupil_trace_valid(session_dir: Path) -> bool:
                 o.get("clean_sha1") == sha1(clean))
     except (OSError, ValueError):
         return False
+
+
+def fullpupil_switch_valid(session_dir: Path) -> bool:
+    """the minute-by-minute switch (fullpupil_sessions.py, mouse option) exists and was made from the current full-pupil
+    trace and the package's current CLEAN file"""
+    sd = Path(session_dir)
+    od, g = sd / "pupil_outputs_fullpupil", sd / "pupil_outputs_general"
+    js, sw = od / SWITCH_JSON, od / SWITCH_CSV
+    if not (js.exists() and sw.exists() and fullpupil_trace_valid(sd)):
+        return False
+    try:
+        s = json.loads(js.read_text(encoding="utf-8"))
+        return (s.get("switch_sha1") == sha1(sw) and s.get("trace_clean_sha1") == sha1(od / "pupil_fullpupil_CLEAN.csv")
+                and s.get("package_clean_sha1") == sha1(g / "pupil_diameter_FINAL_U-Net_results_CLEAN.csv"))
+    except (OSError, ValueError):
+        return False
+
+
+def fullpupil_pupil_csv(session_dir: Path, pupil_root: Path):
+    """the pupil CSV (CLEAN format) of a session in the full-pupil option, or None:
+    * a row in fullpupil_sessions.csv that is approved -> the whole session is the full pupil (pupil_fullpupil_CLEAN.csv)
+    * approved only by the mouse option (fullpupil_mice.csv) -> the minute-by-minute switch (pupil_switch_CLEAN.csv)
+    * not in the option, an explicit 'no', or the files missing / out of date -> None (the package's pupil)"""
+    sd = Path(session_dir)
+    key = session_key(sd)
+    od = sd / "pupil_outputs_fullpupil"
+    rows = read_rows(Path(pupil_root) / LISTS[FULL], warn=None)
+    if key in _keys(rows, lambda r: is_approved(r.get("approved"))):
+        return od / "pupil_fullpupil_CLEAN.csv" if fullpupil_trace_valid(sd) else None
+    if key in auto_full_sessions(pupil_root):
+        return od / SWITCH_CSV if fullpupil_switch_valid(sd) else None
+    return None
 
 
 def session_dir(pupil_root: Path, day: int, cage: str, mouse: str):
