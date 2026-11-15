@@ -434,6 +434,22 @@ def pupil_grade(pupil_root: Path, day_folder: str):
     parts = [p for p in day_folder.split("/") if p]
     if pupil_root is None or len(parts) < 3:
         return None, True, ""
+    # pupil/TST package (added 2026-11-15): pupil_session_quality.csv from tools/pupil_session_quality.py
+    # (manual grade from pupil_grades.csv if given, else the automatic stability grade)
+    pq = pupil_root / "pupil_session_quality.csv"
+    if pq.exists() and parts[0][3:].isdigit():
+        try:
+            Q = pd.read_csv(pq, dtype={"cage": str, "mouse": str})
+            r = Q[(Q["day"].astype(int) == int(parts[0][3:])) & (Q["cage"].astype(str) == parts[1]) &
+                  (Q["mouse"].astype(str).str.lower() == parts[2].lower())]
+            if len(r):
+                r = r.iloc[-1]
+                use = str(r.get("use_for_analysis", "False")).strip().lower() in ("true", "1", "yes")
+                why = str(r.get("reason", "") if pd.notna(r.get("reason", "")) else "")
+                src = str(r.get("grade_source", ""))
+                return str(r["grade"]), use, (f"{why} [{src}]" if src else why)
+        except Exception:
+            pass
     # pupil/TST package (RUN_ALL_18DAYS): its qc.json says how often no pupil was found (2026-11-14)
     qj = pupil_root / parts[0] / parts[1] / parts[2] / "pupil_outputs_general" / "qc.json"
     if qj.exists():
@@ -866,7 +882,8 @@ def fig_day_summary_table(root: Path, d, Md: pd.DataFrame, MDall: pd.DataFrame, 
         if cols[j][0] == "sync_status" and 0 < i <= len(body):
             cell.set_facecolor({"OK": "#d9f2df", "WARN": "#fff1c2", "FAIL": "#f9d2cd"}.get(txt, "white"))
         if cols[j][0] == "pupil_grade" and 0 < i <= len(body):
-            cell.set_facecolor({"ok": "#d9f2df", "partial": "#fff1c2", "no_pupil": "#f9d2cd"}.get(txt, "white"))
+            cell.set_facecolor({"ok": "#d9f2df", "partial": "#fff1c2", "noisy": "#fff1c2", "check": "#fff1c2",
+                                "guess": "#f9d2cd", "no_pupil": "#f9d2cd"}.get(txt, "white"))
     task = ", ".join(sorted(set(m["task"].astype(str))))
     ax.set_title(f"day {d}  -  {len(m)} mice  ({task}; first 15 min 10 s; licks: Saleae contacts, Python valid; "
                  f"*old method = Lick_TTL read at every camera frame, whole session; PR breakpoint = max PR trial)",

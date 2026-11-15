@@ -533,6 +533,12 @@ def main(argv=None):
             has_tst = tst_dir.exists() and any(p.suffix.lower() in (".mp4", ".avi", ".mov", ".mkv", ".wmv", ".m4v")
                                                for p in tst_dir.rglob("*"))
             if run_package_day(dn, has_tst):
+                # per-session pupil grade (added 2026-11-15): manual pupil_grades.csv, else automatic stability grade
+                print("\n=== PUPIL QUALITY ===")
+                subprocess.run([sys.executable, str(TOOLS / "pupil_session_quality.py"),
+                                "--pupil-root", str(PROJECT / "pupil_tst_final"), "--days", str(dn)])
+                subprocess.run([sys.executable, str(TOOLS / "pupil_guess_trace.py"),
+                                "--pupil-root", str(PROJECT / "pupil_tst_final"), "--days", str(dn)])
                 print("\n=== ANALYSIS (again, now with pupil) ===")
                 quick_analysis.main(["--root", str(PROJECT)])
             # eye-box check (added 2026-11-15): the package re-uses the previous day's ROI; mice sit differently daily

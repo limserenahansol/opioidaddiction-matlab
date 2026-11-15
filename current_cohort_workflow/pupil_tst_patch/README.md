@@ -65,8 +65,9 @@ Current-rig settings in `run_all_config.json`:
 
 `DAILY_summary.bat` (`tools/daily_summary.py`) runs the package for the day. It copies these keys from `run_all_config.json`, then makes `analysis/days/dayN/figs/01_pupil_roi_check.png` (`pupil_roi_check.py`).
 - The package re-uses the previous day's ROI for a new day. If an eye is not inside its yellow box, set `"redraw_roi": ["dayN cage_colour"]` and run `RUN_ALL_18DAYS.bat`. It opens the ROI window and redoes that session.
-- A narrowed or inflamed eye cannot be fixed with the box. It shows as "no pupil".
-- For such sessions, `pupil_guess_trace.py` makes a separate best-guess trace from `hybrid_detections.csv`. The guess is labelled as such and never replaces the tracked pupil.
+- A narrowed or inflamed eye cannot be fixed with the box. With `maxp` it is often not "no pupil" but a confident wrong blob (the slit, a cloudy patch), so the "no pupil" fraction alone does not flag it.
+- **Session grade.** `pupil_session_quality.py` writes `pupil_tst_final/pupil_session_quality.csv`: a manual grade from `pupil_tst_final/pupil_grades.csv` when there is one, else an automatic stability grade (`ok` or `check`; see `../pupil_finetune/README.md`). Grades: `ok` and `noisy` (the pupil, with dips) are used by the daily analysis; `guess` (often not the pupil) and `no_pupil` are not. For a `check` session, look at its `qc_sheet.png` and add a row to `pupil_grades.csv`.
+- For `guess` sessions, `pupil_guess_trace.py` makes a separate best-guess trace from `hybrid_detections.csv`. The guess is labelled as such and never replaces the tracked pupil.
 
 ## Apply to a fresh copy of the package
 
@@ -90,3 +91,4 @@ Then copy `current_rig_pupil_unet.mat` into `pupil/model/`. It is not in git; ke
 - **Dark images.** The eye ROI uses about 10–45 of 255 grey levels. More IR light or a higher camera exposure / gain would help any detector.
 - **Hard sessions.** Inflamed or narrowed eyes, a very dark eye without a visible pupil edge, and a dark spot under the upper lid remain unreliable. Use the QC sheets and `qc.json` `fracNoBlob`. The list of affected sessions is kept with the cohort data, not here.
 - **TST.** The TST model expects whole 3–4 min recordings at 30 fps. The current camera writes a 60 fps header, so check the first TST videos (day 5).
+- **Video vs camera pulses.** When a video has more or fewer frames than camera pulses, `pupil_align_ttl` (the original Step 01a logic, unchanged) matches them at the END. On the current rig the video normally starts with the first pulse: the recording stopped early, or test frames were added at the end. A motion-vs-lick cross-correlation confirmed this for both such sessions so far. `pupil_session_quality.py` compares the package's camera times with `sync_sessions.py` (`align_shift_s`, `align_check`) and lists every session where they differ. The package's output is not changed.

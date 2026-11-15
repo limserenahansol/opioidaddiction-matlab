@@ -24,6 +24,7 @@ Run order, logic diagram, definitions and the protocol differences between cohor
 | `pupil_tst_patch/` | Edits that let the pupil/TST package read the current rig (mp4, `9670f` cage folders, `reward` column, `green1` names), plus the current-rig pupil detector (`maxp` + fine-tuned U-Net, re-lock, per-frame detections). All new options default to the old behaviour. |
 | `pupil_finetune/` | How the U-Net was fine-tuned for the current rig: sample frames, candidate sheets, two independent labels per frame, leave-mice-out / leave-day-out checks. Repeat for a new cohort or rig. |
 | `python/daily/pupil_roi_check.py` | Daily eye-box check sheet (3 frames per mouse, ROI drawn, "no pupil" fraction). |
+| `python/daily/pupil_session_quality.py` | Per-session pupil grade (`pupil_session_quality.csv`): the manual grade of `pupil_grades.csv`, else an automatic stability grade. `ok` / `noisy` sessions are used by the daily analysis, `guess` / `no_pupil` are not. |
 | `python/daily/pupil_guess_trace.py` | Best-guess pupil trace for hard sessions (narrowed or inflamed eye) from `hybrid_detections.csv`. It is labelled as a guess and never replaces the tracked pupil. |
 
 ## Requirements

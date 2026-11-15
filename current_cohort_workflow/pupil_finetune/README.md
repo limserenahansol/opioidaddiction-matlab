@@ -50,3 +50,23 @@ Errors cluster in sessions where the pupil is hard to see even by eye:
 - a dark spot under the upper lid.
 
 The package QC sheet and `qc.json` flag these sessions.
+
+**Which blob, when several pass the threshold.** `eval_ft_variants2(..., 'folds')` compares the choice among the blobs with max p >= 0.9 on the held-out folds (all 384 labelled frames, so the numbers are lower than on agreed frames). 133 of 384 frames had more than one such blob.
+
+| Choice among confident blobs | Pupil found | Wrong picks |
+|---|---|---|
+| highest max p (`maxp`, used) | 75.7 % | 30.9 % |
+| closest to the brightest spot (glint) | 73.6 % | 32.9 % |
+| largest sum of p | 67.5 % | 38.4 % |
+| most circular | 65.7 % | 40.1 % |
+| perfect choice (upper bound) | 80.4 % | 26.7 % |
+
+So `maxp` stays. A better tie-break can gain at most about 5 points; the remaining errors are frames where no confident blob is the pupil.
+
+## Per-session grade after the full run
+
+All 16 day-1/2 sessions were graded by eye from their QC sheets (`ok`, `noisy`, `guess`). Two automatic numbers from `hybrid_detections.csv` separated the 7 `ok` sessions from the other 9 without error (`python/daily/pupil_session_quality.py`):
+- `far`: how often the detection centre is more than half a pupil diameter from its 1-s running median;
+- `dev30`: how often the detected diameter is more than 30 % off its 1-s running median.
+
+`ok` sessions had both <= 0.028; each of the others had `far` >= 0.032 or `dev30` >= 0.049. The automatic grade is `ok` when both are <= 0.04, else `check`. A `check` session still needs a look at its QC sheet, because `noisy` (the pupil, with dips) and `guess` (often not the pupil) are not told apart by these numbers.

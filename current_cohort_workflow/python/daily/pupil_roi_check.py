@@ -47,6 +47,14 @@ def main(argv=None):
     if not vids:
         print(f"(ROI check: no videos in video\\day{a.day})"); return 0
     ff = imageio_ffmpeg.get_ffmpeg_exe()
+    grades = {}
+    pq = pupil_root / "pupil_session_quality.csv"
+    if pq.exists():
+        import csv
+        with open(pq, newline="", encoding="utf-8-sig") as fh:
+            for row in csv.DictReader(fh):
+                if row.get("day", "").strip() == str(a.day):
+                    grades[(row["cage"], row["mouse"].lower())] = (row.get("grade", ""), row.get("reason", ""))
     TW, TH, LAB = 400, 300, 26
     sheet = Image.new("RGB", (3 * TW + 20, len(vids) * (TH + LAB + 8) + 50), "white")
     dr = ImageDraw.Draw(sheet)
@@ -64,6 +72,11 @@ def main(argv=None):
                 note = f"no pupil {nb:.0f} % of frames ({j.get('detector', 'unet')})"; bad = nb > 50
             except (ValueError, OSError):
                 note = "qc.json unreadable"
+        # session grade from pupil_session_quality.csv (2026-11-15): ok / noisy / guess / check / no_pupil
+        g = grades.get((cage, mouse.lower()))
+        if g:
+            note += f"   |   grade {g[0]}" + (" (look at qc_sheet.png)" if g[0] == "check" else "")
+            bad = bad or g[0] in ("guess", "no_pupil", "check")
         y_row = 50 + r * (TH + LAB + 8)
         dr.text((8, y_row + 6), f"{cage} {mouse}   ROI {'none yet' if roi is None else ' '.join(str(int(v_)) for v_ in roi)}   |   {note}",
                 fill=(200, 0, 0) if bad else (0, 0, 0))
