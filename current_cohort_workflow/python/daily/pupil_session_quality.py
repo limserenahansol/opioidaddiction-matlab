@@ -18,8 +18,11 @@ Manual grade (wins over the automatic one): pupil_grades.csv next to the day fol
   guess     the detection is often NOT the pupil (inflamed or narrowed eye, an eye too dark to see the pupil edge)
             -> not used as a measurement; pupil_guess.csv (pupil_guess_trace.py) is the labelled best guess
   no_pupil  no pupil in most frames                                                -> not used
+  full_pupil the pupil fills the eye opening (whole eye dark = fully dilated, rule from the user 2026-11-15) and the
+            session is approved in fullpupil_sessions.csv: measured as the whole dark area inside the lids
+            (fullpupil_sessions.py -> pupil_outputs_fullpupil)                     -> used, marked
 
-Output: pupil_session_quality.csv in the pupil root (one row per session; use_for_analysis = grade in ok/noisy),
+Output: pupil_session_quality.csv in the pupil root (one row per session; use_for_analysis = grade in ok/noisy/full_pupil),
 read by quick_analysis.py. Sessions with auto_grade 'check' and no manual grade are printed: look at their
 qc_sheet.png and add a row to pupil_grades.csv.
 
@@ -35,13 +38,16 @@ alignment_fixes.csv), align_check says so and align_shift_package_s keeps the sh
 
 usage: python pupil_session_quality.py --pupil-root <pupil_tst_final> [--sync-root <sync>] [--days 1 2]
 """
-import argparse, json
+import argparse, json, sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-USE = {"ok": True, "noisy": True, "guess": False, "no_pupil": False}
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import concat_choice as CC  # noqa: E402  (which concat_out is the session's table; approvals)
+
+USE = {"ok": True, "noisy": True, "full_pupil": True, "guess": False, "no_pupil": False}
 FAR_MAX, DEV_MAX, NOBLOB_MAX = 0.04, 0.04, 0.5
 
 
@@ -81,6 +87,7 @@ def session_numbers(d: Path) -> dict:
 
 
 SYNC_SUFFIX = "_syncaligned"   # folders written by fix_concat_alignment.py
+DERIVED = ("_syncaligned", "_fullpupil")   # + fullpupil_sessions.py (same digital columns as their source)
 
 
 def run_shift(run: Path, frames_csv: Path):
@@ -94,27 +101,31 @@ def run_shift(run: Path, frames_csv: Path):
     return (float(d.median()), int(len(d))) if len(d) else (np.nan, 0)
 
 
-def usable_runs(session_dir: Path):
-    """concat_out folders a reader may use, oldest first: the package's, and sync-aligned copies that passed
-    fix_concat_alignment.py's checks (fix_source.json present). prepare_step02_base.py copies the last one."""
-    runs = sorted(p for p in session_dir.glob("concat_out_*") if p.is_dir())
-    return [p for p in runs if not p.name.endswith(SYNC_SUFFIX) or
-            ((p / "fix_source.json").exists() and (p / "combined_pupil_digital.csv").exists())]
+def usable_runs(session_dir: Path, root: Path, approvals: dict):
+    """concat_out folders a reader may use, oldest first (concat_choice.py): the package's, and corrected copies that
+    passed their checks AND whose session is approved now. prepare_step02_base.py copies the last one."""
+    return CC.usable_runs(session_dir, root, approvals)
 
 
-def align_shift(session_dir: Path, sync_dir: Path):
-    """(shift_s of the newest usable concat_out, shift_s of the package's newest own concat_out, name of the newest if
-    it is a sync-aligned copy else '')."""
-    runs = usable_runs(session_dir)
+def align_shift(session_dir: Path, sync_dir: Path, root: Path, approvals: dict):
+    """(shift_s of the session's table, shift_s of the package's newest own concat_out, name of the table if it is a
+    corrected copy else '', the base table of a full-pupil copy or '')."""
+    runs = usable_runs(session_dir, root, approvals)
     fcs = sorted(sync_dir.glob("*_frames.csv")) if sync_dir.is_dir() else []
     if not runs or not fcs:
-        return np.nan, np.nan, ""
+        return np.nan, np.nan, "", ""
     sh, _ = run_shift(runs[-1], fcs[0])
-    if not runs[-1].name.endswith(SYNC_SUFFIX):
-        return sh, sh, ""
-    pkg = [p for p in runs if not p.name.endswith(SYNC_SUFFIX)]
+    if not runs[-1].name.endswith(DERIVED):
+        return sh, sh, "", ""
+    pkg = [p for p in runs if not p.name.endswith(DERIVED)]
     psh = run_shift(pkg[-1], fcs[0])[0] if pkg else np.nan
-    return sh, psh, runs[-1].name
+    base = ""
+    if runs[-1].name.endswith("_fullpupil"):
+        try:
+            base = str(json.loads((runs[-1] / "fix_source.json").read_text(encoding="utf-8")).get("base_run", ""))
+        except (OSError, ValueError):
+            base = ""
+    return sh, psh, runs[-1].name, base
 
 
 def shift_words(sh: float) -> str:
@@ -148,6 +159,8 @@ def main(argv=None):
     G = pd.read_csv(gp, dtype={"cage": str, "mouse": str}, encoding="utf-8-sig") if gp.exists() else pd.DataFrame()
     outp = root / "pupil_session_quality.csv"
     old = pd.read_csv(outp, dtype={"cage": str, "mouse": str}) if outp.exists() else pd.DataFrame()
+    approvals = {suf: CC.approved_sessions(root, name) for suf, name in CC.LISTS.items()}   # never raises
+    full_ok = approvals[CC.FULL]
     rows = []
     for q in sorted(root.glob("day*/*/*/pupil_outputs_general/qc.json")):
         day_s, cage, mouse = q.parts[-5], q.parts[-4], q.parts[-3]
@@ -158,29 +171,61 @@ def main(argv=None):
             continue
         n = session_numbers(q.parent)
         ag, why = auto_grade(n)
-        sh, psh, fixed = align_shift(q.parent.parent, sync_root / day_s / cage / mouse)
+        sh, psh, fixed, base = align_shift(q.parent.parent, sync_root / day_s / cage / mouse, root, approvals)
         if not np.isfinite(sh):
             chk = ""
+        elif abs(sh) >= 0.02 and fixed.endswith("_fullpupil") and not base.endswith("_syncaligned"):
+            chk = (f"MISMATCH: the full-pupil copy {fixed} keeps the package's alignment, in which {shift_words(sh)}; "
+                   "if the user approves, add the session to alignment_fixes.csv too")
         elif abs(sh) >= 0.02 and fixed:
-            chk = (f"MISMATCH: the sync-aligned copy {fixed} no longer matches sync_sessions.py ({shift_words(sh)}; "
-                   "frames.csv changed after the fix?): run fix_concat_alignment.py again")
+            chk = (f"MISMATCH: the corrected copy {fixed} no longer matches sync_sessions.py ({shift_words(sh)}; "
+                   "frames.csv changed after the fix?): run fix_concat_alignment.py / fullpupil_sessions.py again")
         elif abs(sh) >= 0.02:
             chk = f"MISMATCH: in the package's concat_out {shift_words(sh)}"
         elif fixed:
-            pk = f"in the package's own concat_out {shift_words(psh)}" if np.isfinite(psh) else \
-                "the package's own concat_out was not found"
-            chk = f"ok (sync-aligned copy {fixed}; {pk})"
+            if not np.isfinite(psh):
+                pk = "the package's own concat_out was not found"
+            elif abs(psh) < 0.02:
+                pk = "the package's own concat_out is aligned too"
+            else:
+                pk = f"in the package's own concat_out {shift_words(psh)}"
+            kind = "full-pupil copy" if fixed.endswith("_fullpupil") else "sync-aligned copy"
+            chk = f"ok ({kind} {fixed}; {pk})"
         else:
             chk = "ok"
         r = dict(day=day, cage=cage, mouse=mouse, **n, auto_grade=ag, auto_reason=why,
                  align_shift_s=sh, align_shift_package_s=psh, align_check=chk)
-        m = G[(G["day"].astype(int) == day) & (G["cage"].astype(str) == cage) &
+        m = G[(G["day"].astype(int) == day) & (G["cage"].astype(str).str.lower() == cage.lower()) &
               (G["mouse"].astype(str).str.lower() == mouse.lower())] if len(G) else pd.DataFrame()
         if len(m):
             g = str(m.iloc[-1]["grade"]).strip().lower()
             r.update(grade=g, grade_source="manual (pupil_grades.csv)", reason=str(m.iloc[-1].get("reason", "")))
         else:
             r.update(grade=ag, grade_source="automatic", reason=why)
+        # fully dilated pupil (2026-11-15): sessions approved in fullpupil_sessions.csv are measured as the whole dark
+        # area inside the lids (fullpupil_sessions.py -> pupil_outputs_fullpupil); grade full_pupil = used, marked
+        fpd = q.parent.parent / "pupil_outputs_fullpupil"
+        listed = CC.norm_key(day, cage, mouse) in full_ok
+        fp_ok = listed and CC.fullpupil_trace_valid(q.parent.parent)   # made from the package's CURRENT output
+        r["fullpupil_median_px"] = np.nan
+        if fp_ok:
+            try:
+                r["fullpupil_median_px"] = float(json.loads((fpd / "fullpupil_qc.json").read_text(encoding="utf-8"))
+                                                 .get("medianDiameter", np.nan))
+            except (ValueError, OSError):
+                pass
+        if listed:
+            if not fp_ok:
+                r.update(grade="check", grade_source="fullpupil_sessions.csv",
+                         reason="listed for the full-pupil measure, but its trace is missing or no longer matches the "
+                                "package's output (re-tracked?): run fullpupil_sessions.py")
+            elif r["grade"] != "full_pupil":
+                r.update(grade="full_pupil", grade_source="fullpupil_sessions.csv",
+                         reason=f"fully dilated pupil: whole dark area inside the lids, median "
+                                f"{r['fullpupil_median_px']:.0f} px (pupil_outputs_fullpupil)")
+        elif r["grade"] == "full_pupil":
+            r.update(grade="check", reason=f"{r['reason']} | graded full_pupil, but the session is not listed (approved) "
+                                           "in fullpupil_sessions.csv, so the package's pupil is used")
         r["use_for_analysis"] = USE.get(r["grade"], False)
         rows.append(r)
     T = pd.DataFrame(rows)
@@ -189,7 +234,7 @@ def main(argv=None):
         T = pd.concat([old, T], ignore_index=True).sort_values(["day", "cage", "mouse"])
     cols = ["day", "cage", "mouse", "grade", "use_for_analysis", "grade_source", "reason", "auto_grade", "auto_reason",
             "no_blob", "rejected", "held", "far", "dev30", "median_diam_px", "n_frames", "detector",
-            "align_shift_s", "align_shift_package_s", "align_check"]
+            "align_shift_s", "align_shift_package_s", "align_check", "fullpupil_median_px"]
     T = T[[c for c in cols if c in T.columns]]
     T.to_csv(outp, index=False, float_format="%.4f")
     print(f"pupil quality -> {outp}")
@@ -203,13 +248,9 @@ def main(argv=None):
     mis = T[T["align_check"].astype(str).str.startswith("MISMATCH")] if "align_check" in T else T.iloc[:0]
     if a.days:   # (with --report-days only, every day's alignment problems are still listed)
         mis = mis[mis["day"].astype(int).isin(a.days)]
-    approved = set()
-    apf = root / "alignment_fixes.csv"
-    if apf.exists():
-        A = pd.read_csv(apf, dtype=str, encoding="utf-8-sig").fillna("")
-        approved = {(int(x.day), x.cage.strip(), x.mouse.strip()) for x in A.itertuples() if str(x.day).strip()}
+    approved = approvals[CC.SYNC]
     for _, r in mis.iterrows():
-        k = (int(r["day"]), str(r["cage"]), str(r["mouse"]))
+        k = CC.norm_key(r["day"], r["cage"], r["mouse"])
         if k in approved:
             advice = "it is approved in alignment_fixes.csv: run fix_concat_alignment.py, then prepare_step02_base.py"
         else:

@@ -9,13 +9,16 @@ Rules (same meaning as in the previous cohort):
   * one session per mouse-day: only the NEWEST concat_out_* of the package output is copied. Step 02 counts every
     concat_out folder as a separate session, so copying several would duplicate the session (as happened in the
     previous cohort: 6099_white day 3 x3, 0911_orange day 7 x2).
-  * the newest can be a concat_out_<stamp>_syncaligned folder (fix_concat_alignment.py, only for sessions the user
-    approved in <pupil-out>\\alignment_fixes.csv); it is used only when it has fix_source.json (it passed the checks).
-    A session that is approved there but whose newest table is the package's (e.g. after a pupil redo) is NOT
-    updated until fix_concat_alignment.py has run again.
-  * an older copy already in BASE (replaced by a sync-aligned copy, or by a pupil redo) is moved to
-    BASE\\_superseded_<date>\\dayN\\<cage>\\<mouse>\\ (kept, outside the dayN folders that Step 02 reads); every move
-    is also appended to BASE\\step02_base_moves.csv.
+  * the session's table is chosen by daily/concat_choice.py (the same rule as every other tool): the package's
+    newest concat_out, or a corrected copy - concat_out_<stamp>_syncaligned (fix_concat_alignment.py) or
+    concat_out_<stamp>_fullpupil (fullpupil_sessions.py) - that passed its checks (fix_source.json) and whose session is
+    approved NOW in <pupil-out>/alignment_fixes.csv or fullpupil_sessions.csv. Corrected copies are options for rare
+    sessions; removing a session from its list takes it back to the package's table.
+    A listed session whose corrected copy is missing (e.g. after a pupil redo) is NOT updated until its tool has run;
+    a session in both lists needs a full-pupil copy built on its sync-aligned table.
+  * an older copy already in BASE (replaced by a corrected copy, a pupil redo, or a withdrawn approval) is moved to
+    BASE/_superseded_<date>/dayN/<cage>/<mouse>/ (kept, outside the dayN folders that Step 02 reads); every move
+    is also appended to BASE/step02_base_moves.csv.
   * one .jsonl per mouse-day: the task log arranged in <python-root>\\dayN\\<cage>\\<mouse>\\. Step 02 picks the newest
     .jsonl whose name contains the mouse or cage name, so a second log in the folder would be ambiguous: it stops.
   * assays (optional): files already named the way Step 02 looks for them are copied from
@@ -33,22 +36,12 @@ import sys
 from datetime import date, datetime
 from pathlib import Path
 
-SYNC_SUFFIX = "_syncaligned"   # concat_out written by fix_concat_alignment.py for a session the user approved
+sys.path.insert(0, str(Path(__file__).resolve().parent / "daily"))
+import concat_choice as CC  # noqa: E402  (which concat_out is the session's table; approvals)
+
+SYNC_SUFFIX, FULL_SUFFIX, DERIVED = CC.SYNC, CC.FULL, CC.DERIVED
 ASSAY_PATTERNS = ("ManualScoringResults*tst*.mat", "ManualScoringResults*hot*.mat", "ManualScoringResults*straub*.mat",
                   "AutoScoringResults*tst*.mat", "*immersion*.xlsx", "*immersion*.csv", "*Immersion*.xlsx", "*Immersion*.csv")
-
-
-def approved_fixes(pupil_out: Path) -> set:
-    """(day, cage, mouse) of the sessions approved in <pupil_out>/alignment_fixes.csv (fix_concat_alignment.py)."""
-    p = pupil_out / "alignment_fixes.csv"
-    out = set()
-    if p.exists():
-        with open(p, newline="", encoding="utf-8-sig") as f:
-            for r in csv.DictReader(f):
-                ok = str(r.get("approved", "")).strip().lower()
-                if str(r.get("day", "")).strip().isdigit() and ok and not ok.startswith("no"):
-                    out.add((int(r["day"]), r["cage"].strip(), r["mouse"].strip()))
-    return out
 
 
 def unique_dir(p: Path) -> Path:
@@ -81,27 +74,35 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
 
     rows, problems, moves = [], [], []
-    approved = approved_fixes(a.pupil_out)
+    approvals = {suf: CC.approved_sessions(a.pupil_out, name) for suf, name in CC.LISTS.items()}   # never raises
     for di, ddir in day_dirs(a.pupil_out, a.days):
         for cage in sorted(p for p in ddir.iterdir() if p.is_dir()):
             for mouse in sorted(p for p in cage.iterdir() if p.is_dir()):
                 key = f"day{di} {cage.name}_{mouse.name}"
-                cos = sorted(mouse.glob("concat_out_*"))
-                cos = [c for c in cos if (c / "combined_pupil_digital.csv").exists()]
-                bad_fix = [c for c in cos if c.name.endswith(SYNC_SUFFIX) and not (c / "fix_source.json").exists()]
-                for c in bad_fix:   # a sync-aligned copy is used only after fix_concat_alignment.py checked it
-                    problems.append(f"{key}: {c.name} has no fix_source.json (not checked) -> ignored")
-                cos = [c for c in cos if c not in bad_fix]
-                if not cos:
+                sk = CC.norm_key(di, cage.name, mouse.name)
+                allc = [c for c in sorted(mouse.glob("concat_out_*")) if (c / "combined_pupil_digital.csv").exists()]
+                usable = CC.usable_runs(mouse, a.pupil_out, approvals)
+                for c in allc:
+                    if c not in usable:   # a corrected copy that is not checked or not approved now is not used
+                        why = "has no fix_source.json (not checked)" if not (c / "fix_source.json").exists() else                             "is not approved now (fix list)"
+                        problems.append(f"{key}: {c.name} {why} -> not used")
+                if not usable:
                     problems.append(f"{key}: no concat_out_* with combined_pupil_digital.csv (pupil step not done?)")
                     continue
-                newest = cos[-1]
-                if len(cos) > 1:
-                    problems.append(f"{key}: {len(cos)} concat_out folders; only the newest {newest.name} is used")
-                if (di, cage.name, mouse.name) in approved and not newest.name.endswith(SYNC_SUFFIX):
-                    # e.g. the package redid the session after the fix: its new table is END-aligned again
-                    problems.append(f"!! {key}: approved alignment fix not (re)applied to the newest {newest.name} -> "
-                                    "this session is NOT updated; run fix_concat_alignment.py first")
+                newest = usable[-1]
+                if len(usable) > 1:
+                    problems.append(f"{key}: {len(usable)} usable concat_out folders; the session's table is {newest.name}")
+                need_full, need_sync = sk in approvals[FULL_SUFFIX], sk in approvals[SYNC_SUFFIX]
+                need = FULL_SUFFIX if need_full else (SYNC_SUFFIX if need_sync else "")
+                if need and not newest.name.endswith(need):
+                    # e.g. the package redid the session after the fix: its new table is END-aligned / U-Net-only again
+                    tool = "fullpupil_sessions.py" if need == FULL_SUFFIX else "fix_concat_alignment.py"
+                    problems.append(f"!! {key}: listed {need[1:]} copy missing for the newest {newest.name} -> "
+                                    f"this session is NOT updated; run {tool} first")
+                    continue
+                if need_full and need_sync and not str(CC._source(newest).get("base_run", "")).endswith(SYNC_SUFFIX):
+                    problems.append(f"!! {key}: in both lists, but {newest.name} is not built on the sync-aligned table -> "
+                                    "NOT updated; run fix_concat_alignment.py, then fullpupil_sessions.py")
                     continue
                 logs = sorted((a.python_root / ddir.name / cage.name / mouse.name).glob("*.jsonl"))
                 if len(logs) != 1:
@@ -129,7 +130,8 @@ def main(argv=None) -> int:
                     # BASE has an older copy than the newest source table (a sync-aligned copy replaced the package's
                     # table, or the package redid the session): keep it, but outside the dayN folders so Step 02 does
                     # not count it as a 2nd session
-                    why = "the sync-aligned " if newest.name.endswith(SYNC_SUFFIX) else "the newer "
+                    why = ("the sync-aligned " if newest.name.endswith(SYNC_SUFFIX) else
+                           "the full-pupil " if newest.name.endswith(FULL_SUFFIX) else "the package's ")
                     if a.apply:
                         tgt = unique_dir(a.base / f"_superseded_{date.today():%Y%m%d}" / ddir.name / cage.name /
                                          mouse.name / c.name)

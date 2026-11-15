@@ -34,7 +34,10 @@ import numpy as np
 import pandas as pd
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import concat_choice as CC  # noqa: E402
 SUFFIX = "_syncaligned"
+DERIVED = ("_syncaligned", "_fullpupil")   # folders made by this tool / by fullpupil_sessions.py
 TMP_PREFIX = "_syncaligned_tmp_"
 MATLAB_TIMEOUT_S = 1800
 PUPIL_COLS = ["Frame", "PupilTimestamp_s", "Diameter_px", "CenterX_px", "CenterY_px", "UsedScoreFallback",
@@ -88,11 +91,12 @@ def valid_fixed(run: Path) -> bool:
 
 
 def runs_of(sdir: Path):
-    """(newest valid concat_out: a package folder or a checked sync-aligned copy, package folders oldest first)"""
+    """(newest checked sync-aligned copy or None, package folders oldest first). Folders made by fullpupil_sessions.py
+    (_fullpupil) are neither: they are made FROM the newest of these."""
     allr = sorted(p for p in sdir.glob("concat_out_*") if p.is_dir())
-    pkg = [p for p in allr if not p.name.endswith(SUFFIX)]
-    usable = [p for p in allr if (not p.name.endswith(SUFFIX)) or valid_fixed(p)]
-    return (usable[-1] if usable else None), pkg
+    pkg = [p for p in allr if not p.name.endswith(DERIVED)]
+    fixed = [p for p in allr if valid_fixed(p)]
+    return (fixed[-1] if fixed else None), pkg
 
 
 def state_at(times, intervals):
@@ -184,8 +188,7 @@ def clean(s: str) -> str:
 
 
 def is_approved(v: str) -> bool:
-    v = str(v).strip().lower()
-    return bool(v) and not v.startswith("no")
+    return CC.is_approved(v)          # 'yes...' or a date YYYY-MM-DD (concat_choice.py)
 
 
 def main(argv=None):
@@ -202,7 +205,14 @@ def main(argv=None):
     if not reg.exists():
         print(f"alignment fixes: none approved ({reg.name} not found)")
         return 0
-    R = pd.read_csv(reg, dtype=str, encoding="utf-8-sig").fillna("")
+    try:
+        R = pd.read_csv(reg, dtype=str, encoding="utf-8-sig").fillna("")
+        R.columns = [str(c).strip().lower() for c in R.columns]
+        if not {"day", "cage", "mouse"} <= set(R.columns):
+            raise ValueError(f"columns {list(R.columns)}")
+    except Exception as exc:   # a broken list must not stop the daily run (nothing is fixed then)
+        print(f"  !! {reg.name} could not be read ({exc}); no alignment fix applied")
+        return 1
     R = R[R["day"].str.strip() != ""]
     skipped = R[~R["approved"].map(is_approved)] if "approved" in R else R.iloc[:0]
     for _, r in skipped.iterrows():
@@ -220,7 +230,7 @@ def main(argv=None):
         day, cage, mouse = int(r["day"]), r["cage"].strip(), r["mouse"].strip()
         key = f"day{day} {cage}_{mouse}"
         sdir = root / f"day{day}" / cage / mouse
-        newest, pkg = runs_of(sdir) if sdir.exists() else (None, [])
+        newest, pkg = runs_of(sdir) if sdir.exists() else (None, [])   # newest = newest checked sync-aligned copy
         fcs = sorted((sync_root / f"day{day}" / cage / mouse).glob("*_frames.csv"))
         evs = sorted((sync_root / f"day{day}" / cage / mouse).glob("*_events.csv"))
         if not pkg or len(fcs) != 1:

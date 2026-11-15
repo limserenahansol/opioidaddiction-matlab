@@ -10,7 +10,9 @@ daily_summary.py - end-of-day routine ("summary of today behavior result").
   2) SYNC     sync_sessions.py   (Python + Saleae + video on one clock)
   3) ANALYSIS quick_analysis.py  (per-day summary figures + across-day master tables)
   4) PUPIL    the user's pupil/TST package for this day (TST too when tst_video\\dayN has videos); ~10 min/session,
-              then the approved alignment fixes (fix_concat_alignment.py), pupil grades + alignment check
+              then the options for rare sessions - the alignment fixes of alignment_fixes.csv
+              (fix_concat_alignment.py) and the full-pupil traces of fullpupil_sessions.csv (fullpupil_sessions.py;
+              its screen is not run daily) - then pupil grades + alignment check
               (pupil_session_quality.py), guess traces and the eye-box check sheet
   5) STEP 02  copy this day's concat_out + task log (+ assay files) into step02_base (input of the original Step 02)
   6) (--longitudinal) original Step 02 -> ALL_mice_longitudinal.csv, then the cohort figures
@@ -547,6 +549,14 @@ def main(argv=None):
                                          str(PROJECT)]).returncode
                 if rc_fix:
                     print("  !! fix_concat_alignment.py reported a problem (see above and alignment_fixes_log.csv)")
+                # fully dilated pupils (added 2026-11-15): an OPTION for rare sessions - only the sessions the user
+                # listed in fullpupil_sessions.csv get the full-pupil trace + Step 02 copy; nothing else changes.
+                # (The screen for such sessions is not run daily: fullpupil_sessions.py --screen-only when wanted.)
+                print("\n=== FULL PUPIL (listed sessions only) ===")
+                rc_fp = subprocess.run([sys.executable, str(TOOLS / "fullpupil_sessions.py"), "--project",
+                                        str(PROJECT)]).returncode
+                if rc_fp:
+                    print("  !! fullpupil_sessions.py reported a problem (see above)")
                 # per-session pupil grade (added 2026-11-15): manual pupil_grades.csv, else automatic stability grade.
                 # All days are recomputed (a redone day's alignment check stays current); grade lines: today only
                 print("\n=== PUPIL QUALITY ===")

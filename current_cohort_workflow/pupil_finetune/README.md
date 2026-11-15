@@ -70,3 +70,31 @@ All 16 day-1/2 sessions were graded by eye from their QC sheets (`ok`, `noisy`, 
 - `dev30`: how often the detected diameter is more than 30 % off its 1-s running median.
 
 `ok` sessions had both <= 0.028; each of the others had `far` >= 0.032 or `dev30` >= 0.049. The automatic grade is `ok` when both are <= 0.04, else `check`. A `check` session still needs a look at its QC sheet, because `noisy` (the pupil, with dips) and `guess` (often not the pupil) are not told apart by these numbers.
+
+## Fully dilated pupils (pupil fills the eye opening)
+
+When the whole eye is dark, the pupil is fully dilated. The pupil is then the whole dark area inside the eyelids, not only its darkest part (rule from the user). On this rig that is about 100-135 px, against about 20-30 px for a normal pupil. Morphine dilates mouse pupils, so drug days can look like this.
+
+The package's tracker cannot measure such a pupil:
+- the U-Net, fine-tuned on frames labelled with a small dark part, finds only that part;
+- the package's step 3 keeps only the part of the mask within 30 px of the last centre, so no pupil can be wider than 60 px.
+
+**Retraining the U-Net did not help (not used).** The 72 labelled frames of the 3 fully dilated sessions (all from one cage, one day) were relabelled with the whole dark area: `make_fullpupil_labels.m` -> `add_fullpupil_labels.m`; 1 frame was dropped because its mask leaked into fur. The U-Net was then retrained with `finetune_unet_cv` on the same folds, and the folds were scored with the tracker's detector (`eval_fullpupil.m`: maxp >= 0.9, IrisCorrection on and off):
+- On held-out mice, the chosen blob had 0.20-0.42 of the full diameter (median 0.29; 0.18 before), and none overlapped well.
+- Even on its own training frames, the final model covered only 28-44 % of the full area.
+- Normal pupils got slightly worse: correct 80 % vs 84 %, wrong picks 18 % vs 12 % on agreed frames.
+
+Three sessions of one cage are too few to learn this.
+
+**Direct measurement (used).** The rule is measured directly in sessions the user approves (`fullpupil_sessions.csv`):
+- `../matlab/pupil_fullpupil_session.m` applies `fullpupil_mask.m` (the whole dark area inside the lids) to every frame.
+- It uses the package's step-3 rules (jump rejection, EMA, re-lock, sgolay smoothing), without the 30-px search radius.
+- A region that touches the ROI edge on more than 40 px and is more than 5 % wider than the last accepted value is treated as a leak into fur. An eye that is only cut by the ROI edge is measured as it is.
+- No values are made up: gaps longer than 1 s (30 frames) and the session ends stay empty instead of being interpolated.
+- A trace is not published to Step 02 when more than half of its frames have no value, or when its median is under 10 px.
+- `../python/daily/fullpupil_sessions.py` runs it and writes a Step 02 copy of the newest table in which only the pupil columns are replaced.
+
+**Screening (an option, not run daily).** `fullpupil_sessions.py --screen-only` looks for such sessions. Fully dilated pupils are rare, so the measurement is an option for listed sessions, not a rule for all sessions. The screen's test: when the ring just outside the tracked pupil is as dark as the pupil, there is no lighter iris around it.
+- On days 1-2 the screen flagged the 3 fully dilated sessions and 3 normal ones; the numbers overlap.
+- So a flag only asks for a look; it never changes the measurement.
+- `dilation_features.m` gives the same numbers on the labelled frames.

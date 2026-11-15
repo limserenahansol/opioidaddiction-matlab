@@ -66,6 +66,10 @@ flowchart TB
      - Every attempt is logged in `alignment_fixes_log.csv`.
      - Every day, `daily_summary.py` re-applies all approved fixes (for example after a redo of an earlier day). It only lists new mismatches.
      - If an approved session's newest table is the package's again, `prepare_step02_base.py` leaves that session as it is until the fix has been re-applied.
+   - **Fully dilated pupils (an option for rare sessions).** When the whole eye is dark, the pupil is the whole dark area inside the lids. The package cannot measure this (see `pupil_finetune/README.md`).
+     - Only sessions the user lists in `pupil_tst_final\fullpupil_sessions.csv` are measured this way (`fullpupil_sessions.py` -> `pupil_outputs_fullpupil\`). They get the grade `full_pupil` (used, marked), and Step 02 reads a `concat_out_<stamp>_fullpupil` copy.
+     - Nothing changes for any other session. A screen that looks for such sessions exists, but it runs only when asked (`--screen-only`) and also flags some normal eyes.
+     - The alignment fix above works the same way: an option for the sessions listed in `alignment_fixes.csv`.
    - **Eye-box check.** `pupil_roi_check.py` writes `analysis\days\dayN\figs\01_pupil_roi_check.png`: 3 frames per mouse with its ROI, the tracker's "no pupil" fraction and the session grade. Mice sit differently every day. If an eye is outside its box, set `redraw_roi` and run `RUN_ALL_18DAYS.bat` for that session.
    - Because every day is done the same evening, the day-18 `RUN_ALL_18DAYS.bat` only has to build the QC page and redo the sessions marked *redo*. Finished sessions are skipped.
 5. **Step 02 base (every day, all days).** `prepare_step02_base.py` copies each session's newest `concat_out_*`, its task log and the assay files into `step02_base\dayN\...`.

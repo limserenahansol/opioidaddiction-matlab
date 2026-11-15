@@ -26,6 +26,7 @@ Run order, logic diagram, definitions and the protocol differences between cohor
 | `python/daily/pupil_roi_check.py` | Daily eye-box check sheet (3 frames per mouse, ROI drawn, "no pupil" fraction). |
 | `python/daily/pupil_session_quality.py` | Per-session pupil grade (`pupil_session_quality.csv`): the manual grade of `pupil_grades.csv`, else an automatic stability grade. `ok` / `noisy` sessions are used by the daily analysis, `guess` / `no_pupil` are not. |
 | `python/daily/fix_concat_alignment.py` + `matlab/pupil_align_ttl_sync.m` | For sessions the user approved (`alignment_fixes.csv`): a new `concat_out_<stamp>_syncaligned` in which video frame k is matched to the camera pulse `sync_sessions.py` gives it. The package matches at the end when the counts differ. The package's output and code are not changed. Each copy is checked row by row and logged. |
+| `python/daily/fullpupil_sessions.py` + `matlab/pupil_fullpupil_session.m` | Fully dilated pupils, i.e. the whole eye is dark: the pupil is then the whole dark area inside the lids. This is an option for rare sessions: only sessions listed in `fullpupil_sessions.csv` get a full-pupil trace (the package's filtering and smoothing) and a Step 02 copy with only the pupil columns replaced. An optional screen (`--screen-only`) looks for such sessions; a flag only asks for a look. |
 | `python/daily/pupil_guess_trace.py` | Best-guess pupil trace for hard sessions (narrowed or inflamed eye) from `hybrid_detections.csv`. It is labelled as a guess and never replaces the tracked pupil. |
 
 ## Requirements

@@ -408,6 +408,7 @@ PUPIL_DIAM_COLS = ("smootheddiameter_px", "diameter_pixels", "diameter_px", "dia
 
 
 ONE_CLICK_CSV = "pupil_diameter_FINAL_U-Net_results_CLEAN.csv"
+FULLPUPIL_DIR, FULLPUPIL_CSV = "pupil_outputs_fullpupil", "pupil_fullpupil_CLEAN.csv"   # same columns as ONE_CLICK_CSV
 
 
 def find_pupil(pupil_root: Path, day_folder: str, session: str):
@@ -422,6 +423,11 @@ def find_pupil(pupil_root: Path, day_folder: str, session: str):
         return sorted(hits)[0]
     d = pupil_root / day_folder
     if d.is_dir():
+        # fully dilated pupil (grade full_pupil, a session the user approved in fullpupil_sessions.csv; 2026-11-15):
+        # the pupil is the whole dark area inside the lids, measured by pupil_fullpupil_session.m
+        fp = d / FULLPUPIL_DIR / FULLPUPIL_CSV
+        if fp.exists() and pupil_grade(pupil_root, day_folder)[0] == "full_pupil":
+            return fp
         oc = sorted(d.rglob(ONE_CLICK_CSV), key=lambda p: p.stat().st_mtime)
         if oc:
             return oc[-1]
@@ -789,8 +795,14 @@ def frame_sampled_licks(root: Path, day_folder: str):
     table that Step 02 gets: the newest pupil_tst_final\\dayN\\cage\\mouse\\concat_out_*\\combined_pupil_digital.csv
     (the package's, or an approved sync-aligned copy that passed its checks, i.e. has fix_source.json; NaN if none)."""
     d = root / "pupil_tst_final" / day_folder
-    cos = sorted(d.glob("concat_out_*/combined_pupil_digital.csv")) if d.exists() else []
-    cos = [c for c in cos if not c.parent.name.endswith("_syncaligned") or (c.parent / "fix_source.json").exists()]
+    cos = []
+    if d.exists():
+        try:
+            import concat_choice as CC   # tools/: the session's table, the same one Step 02 gets
+            t = CC.newest_usable(d, root / "pupil_tst_final")
+            cos = [t / "combined_pupil_digital.csv"] if t is not None else []
+        except Exception:   # noqa: BLE001
+            cos = []
     if not cos:
         return np.nan
     try:
@@ -884,8 +896,8 @@ def fig_day_summary_table(root: Path, d, Md: pd.DataFrame, MDall: pd.DataFrame, 
         if cols[j][0] == "sync_status" and 0 < i <= len(body):
             cell.set_facecolor({"OK": "#d9f2df", "WARN": "#fff1c2", "FAIL": "#f9d2cd"}.get(txt, "white"))
         if cols[j][0] == "pupil_grade" and 0 < i <= len(body):
-            cell.set_facecolor({"ok": "#d9f2df", "partial": "#fff1c2", "noisy": "#fff1c2", "check": "#fff1c2",
-                                "guess": "#f9d2cd", "no_pupil": "#f9d2cd"}.get(txt, "white"))
+            cell.set_facecolor({"ok": "#d9f2df", "full_pupil": "#d6e9f8", "partial": "#fff1c2", "noisy": "#fff1c2",
+                                "check": "#fff1c2", "guess": "#f9d2cd", "no_pupil": "#f9d2cd"}.get(txt, "white"))
     task = ", ".join(sorted(set(m["task"].astype(str))))
     ax.set_title(f"day {d}  -  {len(m)} mice  ({task}; first 15 min 10 s; licks: Saleae contacts, Python valid; "
                  f"*old method = Lick_TTL read at every camera frame, whole session; PR breakpoint = max PR trial)",
