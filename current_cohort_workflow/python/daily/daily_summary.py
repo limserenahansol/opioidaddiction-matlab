@@ -535,6 +535,11 @@ def main(argv=None):
             if run_package_day(dn, has_tst):
                 print("\n=== ANALYSIS (again, now with pupil) ===")
                 quick_analysis.main(["--root", str(PROJECT)])
+            # eye-box check (added 2026-11-15): the package re-uses the previous day's ROI; mice sit differently daily
+            print("\n=== PUPIL ROI CHECK ===")
+            subprocess.run([sys.executable, str(TOOLS / "pupil_roi_check.py"), "--root", str(PROJECT), "--day", str(dn)])
+            print("  If an eye is not inside its yellow box: set \"redraw_roi\" for that session in run_all_config.json\n"
+                  "  and run RUN_ALL_18DAYS.bat (it opens the ROI window and redoes the session).")
         else:
             print("\n(pupil/TST: skipped today with --no-pupil; it can be run later, finished sessions are skipped)")
         update_step02_base(dn)

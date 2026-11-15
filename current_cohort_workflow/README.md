@@ -12,7 +12,7 @@ Run order, logic diagram, definitions and the protocol differences between cohor
 
 | Path | What it does |
 |---|---|
-| `python/daily/daily_summary.py` | End of every day: find the day's task logs, Saleae captures and videos, pair them by start time, arrange `python|salae|video\dayN\<cage>\<mouse>\`, then sync and run the daily analysis. Optional `--pupil [--tst]` runs the pupil/TST package for that day. |
+| `python/daily/daily_summary.py` | End of every day: find the day's task logs, Saleae captures and videos, pair them by start time, arrange `python|salae|video\dayN\<cage>\<mouse>\`, then sync and run the daily analysis. By default it also runs the pupil/TST package for that day (`--no-pupil` skips it), then makes the eye-box check sheet and updates `step02_base`. `--longitudinal` also rebuilds `ALL_mice_longitudinal.csv` with the original Step 02. |
 | `python/daily/sync_sessions.py` | Task log + Saleae + video on one clock; per-session QC (rewards, licks, camera pulses vs video frames). |
 | `python/daily/quick_analysis.py` | Day dashboards, rasters, cumulative and per-minute licking, ILI, peri-reward licking, PR breakpoint; across-day master tables. Uses the package's pupil output (`pupil_tst_final`) and skips sessions whose `qc.json` reports no pupil in more than 50 % of frames. |
 | `python/arrange_assay_videos.py` | Assay days: TST / HP videos to `tst_video|hp_video\dayN\<cage>\<mouse>\`. |
@@ -21,7 +21,10 @@ Run order, logic diagram, definitions and the protocol differences between cohor
 | `python/plot_session_sync.py` | One-session check: pupil, Lick_TTL and Injector_TTL on the camera clock, reward-locked pupil and licking, and the numbers (frames vs camera TTLs, frame-sampled vs raw Saleae vs task-log licks, rewards). |
 | `python/cohort_plots.py` | Cohort figures in the style of the previous analysis (PR, licking, bouts, trajectories, pupil, assays, multivariate), from `ALL_mice_longitudinal.csv`. |
 | `python/harmonize_longitudinal.py` | Combine cohorts: union of columns, `cohort` column, duplicate sessions removed and listed, per-session table. |
-| `pupil_tst_patch/` | Minimal edits that let the pupil/TST package read the current rig (mp4, `9670f` cage folders, `reward` column, `green1` names). |
+| `pupil_tst_patch/` | Edits that let the pupil/TST package read the current rig (mp4, `9670f` cage folders, `reward` column, `green1` names), plus the current-rig pupil detector (`maxp` + fine-tuned U-Net, re-lock, per-frame detections). All new options default to the old behaviour. |
+| `pupil_finetune/` | How the U-Net was fine-tuned for the current rig: sample frames, candidate sheets, two independent labels per frame, leave-mice-out / leave-day-out checks. Repeat for a new cohort or rig. |
+| `python/daily/pupil_roi_check.py` | Daily eye-box check sheet (3 frames per mouse, ROI drawn, "no pupil" fraction). |
+| `python/daily/pupil_guess_trace.py` | Best-guess pupil trace for hard sessions (narrowed or inflamed eye) from `hybrid_detections.csv`. It is labelled as a guess and never replaces the tracked pupil. |
 
 ## Requirements
 

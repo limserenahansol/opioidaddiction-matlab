@@ -7,7 +7,10 @@ Every figure id matches docs/ANALYSIS_METHODS.md (catalog of the previous cohort
 pipeline: lick / reward = 0->1 change of Lick_TTL / Injector_TTL between camera frames, time = CamTime_rel_s,
 PR breakpoint = RequirementLast. Analysis rules of the previous analysis:
   phases Pre 3-5, During 6-10, Post 11-13, Withdrawal 14-16, Re-exposure 17-18 (days 1-2 = FR training, not used);
-  phase medians leave out the transition days 4, 6, 11, 14, 17 (step05 cfg.transitionDays), sensitivity = all days;
+  phase medians leave out transition days; both versions used before are made: [4 6 11 14 17] (step05
+  cfg.transitionDays) and [4 6 11 14] (step06 unreliable days); bouts with both gaps used before: 1 s
+  (analyze_passive_active_dashboard_dec2) and 2 s (make_longitudinal_QC_..._NEWCOHORT_v5) -> 4 figure sets
+  <out>\bout1s_excl4-6-11-14-17, bout1s_excl4-6-11-14, bout2s_excl4-6-11-14-17, bout2s_excl4-6-11-14;
   passive licks on days 6-10 are masked (licks forced invalid), passive rewards are kept (yoked);
   group from the manifest (else: a mouse that is passive on any day = Passive).
 Statistics: Mann-Whitney U (Active vs Passive) per phase, Holm-adjusted across phases; ANCOVA outcome ~ Pre + Group.
@@ -97,7 +100,7 @@ def mouse_day_table(S, manifest):
             continue
         mins = (np.nanmax(t) - np.nanmin(t)) / 60
         lt, rt = onsets(t, s["lick"]), onsets(t, s["rew"])
-        nb, bdur = bouts(lt)
+        nb, bdur = bouts(lt, BOUT_GAP_S)
         p = s["pupil"].astype(float)
         ok = np.isfinite(p)
         resp = np.nan
@@ -239,7 +242,7 @@ def figures(D, T, P, out):
     ph = [p for p in present if p != "During" or (M[(M.phase == "During") & (M.group == "Active")].shape[0])]
     if len(M):
         fig, ax = plt.subplots(figsize=(1.9 * max(2, len(ph)) + 2, 4))
-        box_by_phase(ax, M[M.phase.isin(ph)], "RequirementLast", ph, "PR02  PR phase medians (transition days 4,6,11,14,17 excluded)")
+        box_by_phase(ax, M[M.phase.isin(ph)], "RequirementLast", ph, f"PR02  PR phase medians (days {sorted(TRANSITION_DAYS)} excluded)")
         ax.set_ylabel("median RequirementLast"); save(fig, out, "PR02_PR_phase_medians", made)
     pre = M[M.phase == "Pre"].set_index(["cohort", "mouse_key"]).RequirementLast
     if len(pre) and len(present) > 1:
@@ -307,7 +310,7 @@ def figures(D, T, P, out):
         if len(pre) and later:
             Mm["d"] = Mm[col] - [pre.get((c, m), np.nan) for c, m in zip(Mm.cohort, Mm.mouse_key)]
             fig, ax = plt.subplots(figsize=(1.9 * len(later) + 2, 4))
-            box_by_phase(ax, Mm[Mm.phase.isin(later)], "d", later, f"{fid}  {lab}: phase median - Pre (passive days 6-10 masked)")
+            box_by_phase(ax, Mm[Mm.phase.isin(later)], "d", later, f"{fid}  {lab}: phase median - Pre (passive days 6-10 masked; bout gap {BOUT_GAP_S:g} s; days {sorted(TRANSITION_DAYS)} excluded)")
             ax.set_ylabel(f"delta {lab}"); save(fig, out, f"{fid}_{col}_delta_from_Pre", made)
         else:
             skipped.append(f"{fid} (needs Pre and a later phase)")
@@ -427,22 +430,32 @@ def figures(D, T, P, out):
 
 
 def main(argv=None):
+    global BOUT_GAP_S, TRANSITION_DAYS
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--longitudinal", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--manifest", type=Path, help="CSV mouse_key,group,sex,pair_id (optional)")
+    ap.add_argument("--bout-gaps", type=float, nargs="+", default=[1.0, 2.0])
+    ap.add_argument("--exclusions", nargs="+", default=["4,6,11,14,17", "4,6,11,14"],
+                    help="transition-day sets left out of the phase medians (comma-separated days)")
     a = ap.parse_args(argv)
     a.out.mkdir(parents=True, exist_ok=True)
     S = read_sessions(a.longitudinal)
     man = pd.read_csv(a.manifest) if a.manifest else None
-    D, T, P = mouse_day_table(S, man)
-    D.to_csv(a.out / "mouse_day_table.csv", index=False)
-    if len(T):
-        T.to_csv(a.out / "trial_table.csv", index=False)
-    made, skipped = figures(D, T, P, a.out)
-    print(f"{len(D)} mouse-days, {D.mouse_key.nunique()} mice, days {D.day_index.min()}-{D.day_index.max()}")
-    print("made:", ", ".join(made))
-    print("skipped:", "; ".join(skipped) or "-")
+    for gap in a.bout_gaps:
+        BOUT_GAP_S = gap
+        D, T, P = mouse_day_table(S, man)
+        D.to_csv(a.out / f"mouse_day_table_bout{gap:g}s.csv", index=False)
+        if len(T):
+            T.to_csv(a.out / "trial_table.csv", index=False)
+        for ex in a.exclusions:
+            TRANSITION_DAYS = {int(x) for x in ex.split(",") if x.strip()}
+            sub = a.out / f"bout{gap:g}s_excl{'-'.join(str(d) for d in sorted(TRANSITION_DAYS))}"
+            sub.mkdir(parents=True, exist_ok=True)
+            made, skipped = figures(D, T, P, sub)
+            print(f"[{sub.name}] {len(D)} mouse-days, {D.mouse_key.nunique()} mice, days {D.day_index.min()}-{D.day_index.max()}")
+            print("  made:", ", ".join(made))
+            print("  skipped:", "; ".join(skipped) or "-")
 
 
 if __name__ == "__main__":

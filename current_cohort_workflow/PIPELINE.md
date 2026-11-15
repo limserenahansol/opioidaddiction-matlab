@@ -52,8 +52,10 @@ flowchart TB
      - timing-only differences.
 4. **Pupil/TST (every day, default).** The pupil/TST package runs for that day only.
    - It writes a one-day config: `days=[N]`, ROI = previous day's ROI, `MATLAB -batch`.
-   - It takes about 10 min per session; use `--no-pupil` to skip it on a busy day.
+   - The config copies the detector settings from `run_all_config.json`: `pupil_detector` `maxp` and the fine-tuned `pupil_model`. See `pupil_tst_patch/README.md` and `pupil_finetune/README.md`.
+   - It takes about 10-20 min per session; use `--no-pupil` to skip it on a busy day.
    - The TST step runs automatically when `tst_video\dayN` has videos.
+   - **Eye-box check.** `pupil_roi_check.py` writes `analysis\days\dayN\figs\01_pupil_roi_check.png`: 3 frames per mouse with its ROI, and the tracker's "no pupil" fraction. Mice sit differently every day. If an eye is outside its box, set `redraw_roi` and run `RUN_ALL_18DAYS.bat` for that session.
    - Because every day is done the same evening, the day-18 `RUN_ALL_18DAYS.bat` only has to build the QC page and redo the sessions marked *redo*. Finished sessions are skipped.
 5. **Step 02 base (every day).** `prepare_step02_base.py` copies the day's newest `concat_out_*`, its task log and the assay files into `step02_base\dayN\...`.
    - `daily_summary.py --longitudinal` also rebuilds `ALL_mice_longitudinal.csv` with the original Step 02 and makes the cohort figures, so the data are ready for post-hoc analysis at any time.

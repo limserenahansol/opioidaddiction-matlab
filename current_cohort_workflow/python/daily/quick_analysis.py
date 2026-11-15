@@ -731,6 +731,11 @@ def main(argv=None):
                           name="00_day_dashboard.png")
             Md.to_csv(dd / f"day{d}_metrics.csv", index=False, float_format="%.4g")
             write_day_summary(dd / f"day{d}_summary.txt", d, Md, SSd, pupil_notes)
+            if is_project:
+                try:
+                    fig_day_summary_table(args.root, d, Md, M[(M["window"] == "first_15m10s") & (M["day"] <= d)], SSd, fd)
+                except Exception as exc:
+                    print(f"  (day {d} summary table not made: {exc})")
             print(f"  day {d}: {len(SSd)} sessions -> {dd}")
         if PS:
             pd.concat(PS).to_csv(out / "peri_reward_psth.csv", index=False, float_format="%.5g")
@@ -761,6 +766,129 @@ def main(argv=None):
                 print(f"\n  [{w}]")
                 print(M[M["window"] == w][cols].round(2).to_string(index=False))
     return 0
+
+
+def frame_sampled_licks(root: Path, day_folder: str):
+    """Licks counted as the previous pipeline does (0->1 of Lick_TTL read at every camera frame), from the pupil/TST
+    package's alignment table pupil_tst_final\\dayN\\cage\\mouse\\concat_out_*\\combined_pupil_digital.csv (NaN if none)."""
+    d = root / "pupil_tst_final" / day_folder
+    cos = sorted(d.glob("concat_out_*/combined_pupil_digital.csv")) if d.exists() else []
+    if not cos:
+        return np.nan
+    try:
+        L = pd.read_csv(cos[-1], usecols=["Lick_TTL"])["Lick_TTL"].fillna(0).to_numpy() > 0.5
+        return int(np.sum(np.diff(np.r_[False, L].astype(int)) == 1))
+    except Exception:
+        return np.nan
+
+
+def fig_day_summary_table(root: Path, d, Md: pd.DataFrame, MDall: pd.DataFrame, SSd, fd: Path):
+    """00_day_summary_table.png: one row per mouse + totals / means (all, by sex, by group), the main numbers of the
+    day (first 15 min 10 s), and below it each mouse's PR breakpoint and licks over all days so far."""
+    m = Md[Md["window"] == "first_15m10s"].sort_values(["cage", "mouse"]).copy()
+    if m.empty:
+        return
+    dfold = {S["mouse"]: S["day_folder"] for S in SSd}
+    m["licks_frame"] = [frame_sampled_licks(root, dfold.get(mo, "")) for mo in m["mouse"]]
+    m["bout_time_s"] = m["duty_cycle"] * m["duration_min"] * 60 if "duty_cycle" in m else np.nan
+    man = root / "cohort_manifest.csv"
+    grp = {}
+    if man.exists():
+        try:
+            G = pd.read_csv(man, dtype=str).fillna("")
+            grp = {f"{r.cage_folder}_{r.mouse}": r.group for r in G.itertuples() if r.group}
+        except Exception:
+            grp = {}
+    m["group"] = [grp.get(mo, "") for mo in m["mouse"]]
+    cols = [("mouse", "mouse", "s"), ("task", "task", "s"), ("licks", "licks\n(Saleae)", "d"),
+            ("licks_frame", "licks old\nmethod*", "d"), ("licks_valid", "licks\n(Python valid)", "d"),
+            ("rewards", "rewards", "d"), ("pr_breakpoint", "PR\nbreakpoint", "d"), ("licks_per_min", "licks\n/min", ".1f"),
+            ("licks_per_reward", "licks\n/reward", ".1f"), ("bout_count", "bouts", "d"), ("bout_time_s", "bout\ntime s", ".0f"),
+            ("time_to_reward_median_s", "time to\nreward s", ".2f"), ("licks_lockout", "lockout\nlicks", "d"),
+            ("pupil_grade", "pupil", "s"), ("pupil_median_px", "pupil\npx", ".1f"),
+            ("pupil_reward_response_pct", "pupil\nresp %", ".1f"), ("sync_status", "sync", "s"),
+            ("python_only_licks", "Py-only\nlicks", "d")]
+    cols = [c for c in cols if c[0] in m.columns]
+
+    def fmt(v, f):
+        if v is None or (isinstance(v, float) and np.isnan(v)) or (isinstance(v, str) and v in ("", "nan")):
+            return "-"
+        if f == "s":
+            return str(v)
+        if f == "d":
+            return f"{int(round(float(v)))}"
+        return format(float(v), f)
+
+    body = [[fmt(r[c], f) for c, _, f in cols] for _, r in m.iterrows()]
+    num = [c for c, _, f in cols if f != "s"]
+
+    def summary_row(label, sub, how):
+        row = []
+        for c, _, f in cols:
+            if c == "mouse":
+                row.append(label)
+            elif c in num and len(sub):
+                v = pd.to_numeric(sub[c], errors="coerce").dropna()
+                if not len(v):
+                    row.append("-")
+                elif how == "sum" and c in ("licks", "licks_frame", "licks_valid", "rewards", "bout_count", "licks_lockout",
+                                            "python_only_licks"):
+                    row.append(fmt(v.sum(), "d"))
+                elif how == "sum":
+                    row.append("")
+                else:
+                    sd = v.std(ddof=1) if len(v) > 1 else 0
+                    row.append(f"{v.mean():.1f}±{sd:.1f}" if f != "d" or how == "mean" else fmt(v.mean(), f))
+            else:
+                row.append(f"n={len(sub)}" if c == "task" else "")
+        return row
+
+    extra = [summary_row("ALL sum", m, "sum"), summary_row("ALL mean±SD", m, "mean")]
+    for sex, g in m.groupby("sex"):
+        if sex:
+            extra.append(summary_row(f"{sex} mean±SD", g, "mean"))
+    for gname, g in m.groupby("group"):
+        if gname:
+            extra.append(summary_row(f"{gname} mean±SD", g, "mean"))
+    allrows = body + extra
+    ncol = len(cols)
+    fig = plt.figure(figsize=(max(16, 1.05 * ncol), 3.2 + 0.36 * len(allrows) + 3.6))
+    gs = fig.add_gridspec(2, 2, height_ratios=[0.9 + 0.36 * len(allrows), 3.4])
+    ax = fig.add_subplot(gs[0, :]); ax.axis("off")
+    tb = ax.table(cellText=allrows, colLabels=[lab for _, lab, _ in cols], loc="upper center", cellLoc="center")
+    tb.auto_set_font_size(False); tb.set_fontsize(8.5); tb.scale(1, 1.55)
+    for (i, j), cell in tb.get_celld().items():
+        if i == 0:
+            cell.set_facecolor("#e8e8e8"); cell.set_text_props(weight="bold"); cell.set_height(cell.get_height() * 1.6)
+        elif i > len(body):
+            cell.set_facecolor("#f4f4fa")
+        txt = cell.get_text().get_text()
+        if cols[j][0] == "sync_status" and 0 < i <= len(body):
+            cell.set_facecolor({"OK": "#d9f2df", "WARN": "#fff1c2", "FAIL": "#f9d2cd"}.get(txt, "white"))
+        if cols[j][0] == "pupil_grade" and 0 < i <= len(body):
+            cell.set_facecolor({"ok": "#d9f2df", "partial": "#fff1c2", "no_pupil": "#f9d2cd"}.get(txt, "white"))
+    task = ", ".join(sorted(set(m["task"].astype(str))))
+    ax.set_title(f"day {d}  -  {len(m)} mice  ({task}; first 15 min 10 s; licks: Saleae contacts, Python valid; "
+                 f"*old method = Lick_TTL read at every camera frame, whole session; PR breakpoint = max PR trial)",
+                 fontsize=10, loc="left")
+    MD = MDall.copy()
+    for k, (col, lab) in enumerate((("pr_breakpoint", "PR breakpoint"), ("licks", "licks (Saleae, first 15:10)"))):
+        a = fig.add_subplot(gs[1, k])
+        if col in MD and MD[col].notna().any():
+            for mo, g in MD.groupby("mouse"):
+                g = g.sort_values("day")
+                a.plot(g["day"], g[col], "-o", ms=3, lw=1, label=mo, ls="-" if str(g["sex"].iloc[0]) == "F" else "--")
+            a.axvline(d, color="0.75", lw=6, alpha=0.4)
+            a.xaxis.set_major_locator(matplotlib.ticker.MaxNLocator(integer=True))
+        else:
+            a.text(0.5, 0.5, "no PR days yet" if col == "pr_breakpoint" else "no data", ha="center", va="center",
+                   transform=a.transAxes, color="0.5"); a.set_xticks([]); a.set_yticks([])
+        a.set_title(f"{lab} by day (this day shaded)", fontsize=10, loc="left"); a.set_xlabel("day")
+        if k == 1:
+            a.legend(fontsize=7, ncol=2, loc="upper left", bbox_to_anchor=(1.0, 1.0))
+    fig.tight_layout()
+    fig.savefig(fd / "00_day_summary_table.png", dpi=110)
+    plt.close(fig)
 
 
 def write_day_summary(path: Path, d, Md: pd.DataFrame, SSd, pupil_notes: dict):
