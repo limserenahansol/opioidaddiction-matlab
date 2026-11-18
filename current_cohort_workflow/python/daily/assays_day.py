@@ -19,9 +19,11 @@ For day N (TST + HOT on days 5, 10, 13, 16, 18; the tail-immersion latencies go 
     of that mouse-day (ManualScoringResults*tst*.mat without '_AUTO' in that folder) wins: the _AUTO file is then not
     written. Example sheets for checking: analysis/tst/day<N>/examples/ (tst_examples.py).
  3. HOT: the FIRST 30 s of every HOT video (30 s x its frame rate, e.g. 900 frames at 30 fps; no audio) as a scoring
-    copy in <project>/hp_video/day<N>_first30s/ for the lab's manual scorer:
-      cd('<project>/tools/opioidaddiction-matlab/step01_manual_assays')
-      manual_scoring_video_multibehavior_batch2('<project>/hp_video/day<N>_first30s')
+    copy in <project>/hp_video/day<N>_first30s/ for the lab's manual scorer, played at real time (user 2026-11-18:
+    "2x is too fast do just 1x") with its copy that only takes the speed as an argument:
+      cd('<project>/tools/opioidaddiction-matlab/current_cohort_workflow/matlab')
+      manual_scoring_video_multibehavior_speed('<project>/hp_video/day<N>_first30s', 1)
+    (the original step01_manual_assays/manual_scoring_video_multibehavior_batch2.m plays at 2x; same keys and files)
     Its ManualScoringResults_*.mat (written to that folder's output/) are copied to assays/day<N>/<cage>/<mouse>/
     (the name keeps 'HOT', which Step 02 reads as 'ManualScoringResults*hot*.mat').
  4. TABLE: analysis/days/day<N>/assays_day<N>.csv, one row per mouse of the cohort: TST % non-moving (first 3 min), run
@@ -235,9 +237,9 @@ def hot_step(day: int, apply: bool, log: list):
         copy_if_changed(m, P / "assays" / f"day{day}" / cage / mouse / m.name, apply, log, "HOT hand score, first 30 s")
     if vids:
         n_done = len(list((sdir / "output").glob("ManualScoringResults_*.mat"))) if (sdir / "output").exists() else 0
-        log.append(f"  HOT: {len(vids)} video(s), {n_done} scored by hand. To score: in MATLAB "
-                   f"cd('{(T / 'opioidaddiction-matlab' / 'step01_manual_assays').as_posix()}'); "
-                   f"manual_scoring_video_multibehavior_batch2('{sdir.as_posix()}')")
+        mdir = T / "opioidaddiction-matlab" / "current_cohort_workflow" / "matlab"
+        log.append(f"  HOT: {len(vids)} video(s), {n_done} scored by hand. To score at real time: in MATLAB "
+                   f"cd('{mdir.as_posix()}'); manual_scoring_video_multibehavior_speed('{sdir.as_posix()}', 1)")
 
 
 def table(day: int):
