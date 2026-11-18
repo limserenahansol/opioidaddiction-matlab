@@ -47,7 +47,9 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import concat_choice as CC  # noqa: E402  (which concat_out is the session's table; approvals)
 
-USE = {"ok": True, "noisy": True, "full_pupil": True, "guess": False, "no_pupil": False}
+USE = {"ok": True, "noisy": True, "full_pupil": True, "guess": False, "no_pupil": False,
+       "best_effort": True,   # 2026-11-16: best-effort trace of a hard eye, approved in besteffort_sessions.csv
+       "whole_eye": True}     # 2026-11-17: eye damage - whole eye instead of the pupil (wholeeye_mice.csv)
 FAR_MAX, DEV_MAX, NOBLOB_MAX = 0.04, 0.04, 0.5
 
 
@@ -190,7 +192,9 @@ def main(argv=None):
                 pk = "the package's own concat_out is aligned too"
             else:
                 pk = f"in the package's own concat_out {shift_words(psh)}"
-            kind = "full-pupil copy" if fixed.endswith("_fullpupil") else "sync-aligned copy"
+            kind = ("full-pupil copy" if fixed.endswith("_fullpupil") else "whole-eye copy" if fixed.endswith(CC.WHOLE)
+                    else "best-effort copy" if fixed.endswith(CC.BEST) else "behavior-only table"
+                    if fixed.endswith(CC.NOVID) else "sync-aligned copy")
             chk = f"ok ({kind} {fixed}; {pk})"
         else:
             chk = "ok"
@@ -235,6 +239,24 @@ def main(argv=None):
         elif r["grade"] == "full_pupil":
             r.update(grade="check", reason=f"{r['reason']} | graded full_pupil, but the session is not listed (approved) "
                                            "in fullpupil_sessions.csv, so the package's pupil is used")
+        # whole eye (2026-11-17): a mouse with eye damage approved in wholeeye_mice.csv / wholeeye_sessions.csv - the
+        # pupil columns are the whole eye between the lids (wholeeye_clean.py -> pupil_outputs_wholeeye)
+        r["wholeeye_median_px"] = np.nan
+        if CC.norm_key(day, cage, mouse) in approvals.get(CC.WHOLE, set()):
+            we = CC.wholeeye_pupil_csv(q.parent.parent, root)
+            if we is None:
+                r.update(grade="check", grade_source="wholeeye_mice.csv",
+                         reason="approved for the whole eye, but pupil_outputs_wholeeye/wholeeye_CLEAN.csv is missing: "
+                                "run the whole-eye step (eye_track_all.m, wholeeye_clean.py, wholeeye_sessions.py)")
+            else:
+                try:
+                    r["wholeeye_median_px"] = float(pd.to_numeric(pd.read_csv(we, usecols=["SmoothedDiameter_px"])
+                                                                  ["SmoothedDiameter_px"], errors="coerce").median())
+                except (ValueError, OSError):
+                    pass
+                r.update(grade="whole_eye", grade_source="wholeeye_mice.csv",
+                         reason=f"eye damage: the whole eye between the lids instead of the pupil (equivalent diameter "
+                                f"of the eye opening, median {r['wholeeye_median_px']:.0f} px)")
         r["use_for_analysis"] = USE.get(r["grade"], False)
         rows.append(r)
     T = pd.DataFrame(rows)
@@ -243,7 +265,7 @@ def main(argv=None):
         T = pd.concat([old, T], ignore_index=True).sort_values(["day", "cage", "mouse"])
     cols = ["day", "cage", "mouse", "grade", "use_for_analysis", "grade_source", "reason", "auto_grade", "auto_reason",
             "no_blob", "rejected", "held", "far", "dev30", "median_diam_px", "n_frames", "detector",
-            "align_shift_s", "align_shift_package_s", "align_check", "fullpupil_median_px"]
+            "align_shift_s", "align_shift_package_s", "align_check", "fullpupil_median_px", "wholeeye_median_px"]
     T = T[[c for c in cols if c in T.columns]]
     T.to_csv(outp, index=False, float_format="%.4f")
     print(f"pupil quality -> {outp}")

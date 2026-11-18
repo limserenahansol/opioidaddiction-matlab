@@ -9,13 +9,33 @@ daily_summary.py - end-of-day routine ("summary of today behavior result").
               Every action is written to <project>/_arrangement_log.csv. Files still open (recording) are skipped.
   2) SYNC     sync_sessions.py   (Python + Saleae + video on one clock)
   3) ANALYSIS quick_analysis.py  (per-day summary figures + across-day master tables)
-  4) PUPIL    the user's pupil/TST package for this day (TST too when tst_video\\dayN has videos); ~10 min/session,
+  4) PUPIL    the user's pupil/TST package for this day (pupil only since 2026-11-18; TST: step 5b); ~10 min/session,
               then the options for rare sessions - the alignment fixes of alignment_fixes.csv
               (fix_concat_alignment.py) and the full-pupil traces of fullpupil_sessions.csv (fullpupil_sessions.py;
               its screen is not run daily) - then pupil grades + alignment check
               (pupil_session_quality.py), guess traces and the eye-box check sheet
-  5) STEP 02  copy this day's concat_out + task log (+ assay files) into step02_base (input of the original Step 02)
-  6) (--longitudinal) original Step 02 -> ALL_mice_longitudinal.csv, then the cohort figures
+  5) CHECKS   (report only, added 2026-11-15) session_check.py --all for this date (protocol, valve time, licks,
+              camera frames vs pulses, Saleae settings vs tools\\protocol_expected.csv) and pr_daily_checks.py
+              (per-mouse PR table: analysis\\days\\dayN\\pr_checks_dayN.txt/.csv and figs\\12_pr_checks.png)
+  5b) ASSAYS (added 2026-11-18; --no-assays skips it) assays_day.py: the day's TST / hot-plate videos (Logitech
+              Capture folder, names <cage><mouse>_TST_dayN / _HOT_dayN) copied to tst_video / hp_video; TST scored
+              automatically on the FIRST 3 MIN (tst_mouse_lock.py: the package scorer unchanged + per-frame mouse
+              check + camera-view fix only when needed) -> assays\\dayN\\<cage>\\<mouse>\\ManualScoringResults_
+              <video>_AUTO.mat; HOT: first-30-s copies for the hand scorer (hp_video\\dayN_first30s), its .mat files
+              filed; table analysis\\days\\dayN\\assays_dayN.csv (TST, HOT, tail immersion)
+  6) STEP 02  copy this day's concat_out + task log (+ assay files) into step02_base (input of the original Step 02)
+  7) STEP 02 (every day since 2026-11-17; --no-longitudinal skips it) original Step 02 -> ALL_mice_longitudinal.csv,
+              then the previous cohort's figures (cohort_plots.py; whole-eye mice left out of the pupil figures)
+  8) QC SUMMARY (added 2026-11-17) qc_summary.py: one picture of all days so far (rewards Python = Saleae, PR, valve,
+              session length, licks Saleae vs Python, frames vs pulses, pupil / whole eye); every CHECK item is
+              explained (yellow) or red; open issues in analysis\\days\\qc_open_issues.csv
+  9) ROUTINE PPT (added 2026-11-17) routine_ppt.py -> analysis\\ppt\\routine_dayN_<date>.pptx: overview, QC per
+              session, data problems and fixes, routine problems fixed (analysis\\days\\routine_log.csv), where all
+              plots are, basic plots (previous-cohort figures + today's figures), what to do better next
+              (analysis\\days\\next_steps.csv)
+ 10) DATA INDEX (added 2026-11-18) data_index.py -> analysis\\data_index.csv + analysis\\days\\dayN\\data_index_dayN.csv:
+              every data file saved so far (relative path, rows, size, which one is final), so the analysis after
+              day 18 reads them and never re-runs the daily steps; report only (MISSING lines)
 
 Usage:
   python daily_summary.py                    today (all steps, pupil included)
@@ -42,19 +62,65 @@ from pathlib import Path
 TOOLS = Path(__file__).resolve().parent
 PROJECT = TOOLS.parent
 HOME = Path.home()
-# where Python / Logic / IC Capture may have saved things (searched for files of the given day)
+sys.path.insert(0, str(TOOLS))
+import concat_choice as CC   # noqa: E402  (2026-11-17: which pupil tree the tables use; whole-eye approvals)
+
+
+def pupil_root() -> Path:
+    """the pupil/TST package tree the tables use (concat_choice.active_pupil_root: <project>/pupil_active_root.txt;
+    since 2026-11-17 pupil_tst_teach = the package with the model retrained on the user's drawings), else
+    pupil_tst_final (the original package run)"""
+    return CC.active_pupil_root(PROJECT)
+def local_paths(key: str) -> list:
+    """this PC's folders from tools/local_paths.json (kept out of the repository, which stores no absolute paths):
+    raw_dirs (where IC Capture / Logic save; searched), skip_roots (old project copies never searched),
+    assay_video_dirs (TST / HOT recordings, assays_day.py). [] when the file or key is missing."""
+    try:
+        return [Path(p) for p in json.loads((TOOLS / "local_paths.json").read_text(encoding="utf-8")).get(key, [])]
+    except (OSError, ValueError):
+        return []
+
+
+# where Python / Logic / IC Capture may have saved things (searched for files of the given day); raw_dirs of
+# local_paths.json = the local raw folder (not OneDrive) IC Capture / Logic save to from day 5 (user 2026-11-18)
 SEARCH = [
     (HOME / "Downloads" / "behavior_task_windows", 1),
     (HOME / "Downloads", 2),
     (HOME / "Documents", 3),
     (HOME / "Desktop", 3),
     (HOME / "Videos", 3),
+    *[(p, 3) for p in local_paths("raw_dirs")],
     (HOME, 2),
     (PROJECT, 6),
 ]
+
+
+def shell_folder(name: str):
+    """Where Windows puts a user folder now (read only). OneDrive moved Documents and Desktop on 2026-11-16, so IC
+    Capture / Logic may now save there instead of HOME\\Documents. None if unknown."""
+    try:
+        import os
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                            r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") as k:
+            v, _ = winreg.QueryValueEx(k, name)
+        return Path(os.path.expandvars(v))
+    except (OSError, ImportError):
+        return None
+
+
+for _name in ("Personal", "Desktop", "My Video"):          # Documents, Desktop, Videos as Windows sees them now
+    _p = shell_folder(_name)
+    if _p is not None and _p.is_dir() and all(_p != r for r, _ in SEARCH):
+        SEARCH.insert(len(SEARCH) - 2, (_p, 3))
 SKIP_PARTS = {"AppData", ".claude", ".venv", "sync", "analysis", "_tests_and_aborted", "node_modules", "tools",
               "pupil", "$Recycle.Bin", "OneDrive"}
-NAME_RE = re.compile(r"^(?P<cage>\d{4}[mfMF]?)_*(?P<mouse>[A-Za-z]+\d*)_*(?P<task>fr\d+|pr\d*[a-z0-9]*)?_*day(?P<day>\d+)",
+# 2026-11-18 the project was copied out of OneDrive to a local drive (user: "please use local drive not one drive");
+# old copies (skip_roots of local_paths.json) stay as backups and must never be searched for a day's files (Documents
+# still is, because IC Capture / Logic may still save there)
+SKIP_ROOTS = {str(p).lower() for p in local_paths("skip_roots") if p.resolve() != PROJECT.resolve()}
+NAME_RE = re.compile(r"^(?P<cage>\d{4}[mfMF]?)_*(?P<mouse>[A-Za-z]+\d*)_*"
+                     r"(?P<task>fr\d+|pr\d*[a-z0-9]*|e?passive|active)?_*day(?P<day>\d+)",   # passive: days 6-10
                      re.I)
 MIN_SESSION_S = 120          # shorter Python runs are tests / aborted
 DEEP_MAX = 25                # max folder depth followed for folders changed on the searched day
@@ -103,6 +169,8 @@ def scan(day: date):
                 if p.name in SKIP_PARTS or p.name.startswith("."):
                     continue
                 if p.is_dir():
+                    if str(p).lower() in SKIP_ROOTS:          # the old project copy left in OneDrive (2026-11-18)
+                        continue
                     if lvl + 1 < depth:
                         stack.append((p, lvl + 1))
                     elif lvl + 1 < DEEP_MAX:
@@ -439,22 +507,49 @@ def matlab_exe():
     return shutil.which("matlab") or next((str(p) for p in sorted(Path(r"C:\Program Files\MATLAB").glob("R*/bin/matlab.exe"))), None)
 
 
+def remap_moved_paths(c: dict) -> list:
+    """The project folder can move (OneDrive moved Documents, 2026-11-16). A config path inside a project folder that
+    no longer exists is pointed at the same place under PROJECT. Only the one-day copy is changed; run_all_config.json
+    itself is left as it is. Paths that exist are never touched."""
+    changed = []
+    for k, v in list(c.items()):
+        if not isinstance(v, str) or not re.match(r"^[A-Za-z]:[\\/]", v):
+            continue
+        p = Path(v)
+        if p.exists() or PROJECT.name not in p.parts:
+            continue
+        q = PROJECT.joinpath(*p.parts[p.parts.index(PROJECT.name) + 1:])
+        if q.exists():
+            c[k] = str(q)
+            changed.append(f"{k}: {v} -> {q}")
+    return changed
+
+
 def run_package_day(day_n: int, tst: bool) -> bool:
     """Pupil (and TST when that day has TST videos) for ONE day with the user's pupil/TST package. Runs every day
     by default since 2026-11-14 (finished sessions are skipped, so the day-18 RUN_ALL_18DAYS.bat run only has to do
     the QC page and the sessions marked redo). Writes a one-day copy of run_all_config.json (days = [N]; TST videos
     of tst_video\\dayN only, results in pupil_tst_final\\TST_auto\\dayN) and runs MATLAB -batch (ROI: previous day's)."""
-    cfg = PACKAGE / "run_all_config.json"
+    # 2026-11-17: when the tables use the new package's tree (pupil_tst_teach), the one-day config is made from
+    # run_all_config_teach_day1.json (same package code; the model retrained on the user's drawings; output in
+    # pupil_tst_teach). run_all_config.json (the original package run) is not changed.
+    teach = PACKAGE / "run_all_config_teach_day1.json"
+    use_teach = pupil_root().name != "pupil_tst_final" and teach.exists()
+    cfg = teach if use_teach else PACKAGE / "run_all_config.json"
     if not cfg.exists():
         print("\n(pupil/TST step skipped: package or run_all_config.json missing)")
         return False
     c = json.loads(cfg.read_text(encoding="utf-8"))
     c.update(days=[day_n], dry_run=False, run_pupil=True, run_tst=bool(tst), roi_mode="previous",
-             _note=f"one-day run from daily_summary.py (day {day_n}); the main config is run_all_config.json")
+             _note=f"one-day run from daily_summary.py (day {day_n}); made from {cfg.name}")
+    if use_teach and Path(str(c.get("pupil_out_root", ""))).resolve() != pupil_root().resolve():
+        print(f"  !! {cfg.name} writes to {c.get('pupil_out_root')}, but the tables use {pupil_root()}")
+    for m in remap_moved_paths(c):
+        print(f"  (project folder moved) {m}")
     if tst:
         c.update(tst_video_root=str(PROJECT / "tst_video" / f"day{day_n}"),
                  tst_out_root=str(Path(c.get("pupil_out_root") or PROJECT / "pupil_tst_final") / "TST_auto" / f"day{day_n}"))
-    day_cfg = PACKAGE / f"run_all_config_day{day_n}.json"
+    day_cfg = PACKAGE / (f"run_all_config_teach_day{day_n}.json" if use_teach else f"run_all_config_day{day_n}.json")
     day_cfg.write_text(json.dumps(c, indent=2), encoding="utf-8")
     matlab = matlab_exe()
     if not matlab:
@@ -463,6 +558,36 @@ def run_package_day(day_n: int, tst: bool) -> bool:
     print(f"\n=== PUPIL{' + TST' if tst else ''} (package, day {day_n}; about 10 min per session) ===")
     cmd = f"cd('{PACKAGE}'); RUN_ALL_18DAYS('{day_cfg}')"
     subprocess.run([matlab, "-batch", cmd])
+    return True
+
+
+def run_wholeeye() -> bool:
+    """the whole eye of the mice approved in <pupil tree>/wholeeye_mice.csv (2026-11-17: 9670f black, 9669m black - eye
+    damage, the pupil cannot be seen): tracking crops (wholeeye_build_set.py --crops-only; a new day needs its eye box
+    video\\dayN\\<cage>\\<mouse>\\roi.mat first) -> eye_track_all.m with the one-time eye model (sessions already done
+    are skipped) -> wholeeye_clean.py (pupil_outputs_wholeeye\\wholeeye_CLEAN.csv) -> wholeeye_sessions.py (Step 02
+    copy concat_out_*_wholeeye)."""
+    root = pupil_root()
+    if not CC.read_rows(root / CC.WHOLE_MICE, warn=None, need=("cage", "mouse")):
+        print("  (no mouse in wholeeye_mice.csv)")
+        return False
+    # eye_unet_black3 (2026-11-18): 21 user outlines incl. the white/cloudy part of the 9670f black eye (user: the white
+    # part IS eye); every whole-eye session uses this one model (black2 = 18 outlines, its outputs kept in
+    # analysis\\wholeeye\\_superseded_20261118_black2)
+    model = PROJECT / "analysis" / "wholeeye" / "model" / "eye_unet_black3.mat"
+    matlab = matlab_exe()
+    if not model.exists() or not matlab:
+        print("  (whole-eye step skipped: the eye model or MATLAB is missing)")
+        return False
+    subprocess.run([sys.executable, str(TOOLS / "wholeeye_build_set.py"), "--crops-only"])
+    ft = TOOLS / "opioidaddiction-matlab" / "current_cohort_workflow" / "pupil_finetune"
+    crops, out = PROJECT / "analysis" / "wholeeye" / "crops.json", PROJECT / "analysis" / "wholeeye"
+    subprocess.run([matlab, "-batch", f"maxNumCompThreads(8); cd('{ft.as_posix()}'); "
+                                      f"eye_track_all('{crops.as_posix()}', '{model.as_posix()}', '{out.as_posix()}')"])
+    subprocess.run([sys.executable, str(TOOLS / "wholeeye_clean.py"), "--project", str(PROJECT)])
+    rc = subprocess.run([sys.executable, str(TOOLS / "wholeeye_sessions.py"), "--project", str(PROJECT)]).returncode
+    if rc:
+        print("  !! wholeeye_sessions.py reported a problem (see above)")
     return True
 
 
@@ -476,7 +601,7 @@ def update_step02_base(day_n: int) -> bool:
         print("\n(step02_base not updated: current_cohort_workflow not found in tools)")
         return False
     print(f"\n=== STEP 02 BASE (all days; new today: day {day_n}) ===")
-    subprocess.run([sys.executable, str(script), "--pupil-out", str(PROJECT / "pupil_tst_final"), "--python-root",
+    subprocess.run([sys.executable, str(script), "--pupil-out", str(pupil_root()), "--python-root",
                     str(PROJECT / "python"), "--assays", str(PROJECT / "assays"), "--base", str(PROJECT / "step02_base"),
                     "--apply"])
     return True
@@ -501,6 +626,17 @@ def run_longitudinal() -> bool:
            "--out", str(PROJECT / "analysis" / "cohort_figs" / runs[-1].name)]
     if man.exists():
         cmd += ["--manifest", str(man)]
+    # whole-eye mice (2026-11-17): their Diameter_px is the whole eye, not the pupil -> not in the pupil figures
+    try:
+        import concat_choice as CC
+        rows = CC.read_rows(pupil_root() / CC.WHOLE_MICE, need=("cage", "mouse"))
+        keys = [f"{re.sub(r'[^0-9]', '', r['cage'])}_{r['mouse'].strip().lower()}" for r in rows
+                if CC.is_approved(r.get("approved"))]
+    except Exception as e:                       # never stop the figures for this
+        print(f"  (whole-eye mice not read: {e})")
+        keys = []
+    if keys:
+        cmd += ["--no-pupil-mice", *sorted(set(keys))]
     subprocess.run(cmd)
     return True
 
@@ -514,7 +650,11 @@ def main(argv=None):
                     help="skip the pupil/TST package today (default: run it for this day, ~10 min per session)")
     ap.add_argument("--pupil", action="store_true", help="(old flag; pupil now runs by default)")
     ap.add_argument("--longitudinal", action="store_true",
-                    help="also rebuild ALL_mice_longitudinal.csv with the original Step 02 and the cohort figures")
+                    help="(old flag; Step 02 + the cohort figures now run by default for the routine PPT)")
+    ap.add_argument("--no-longitudinal", action="store_true",
+                    help="skip Step 02 + the previous-cohort figures today (the PPT then shows the newest older run)")
+    ap.add_argument("--no-ppt", action="store_true", help="skip the routine PowerPoint")
+    ap.add_argument("--no-assays", action="store_true", help="skip the TST / HOT step (assays_day.py) today")
     args = ap.parse_args(argv)
     day = date.fromisoformat(args.date) if args.date else date.today()
     if not args.no_arrange:
@@ -535,10 +675,10 @@ def main(argv=None):
                    if any(datetime.fromtimestamp(p.stat().st_mtime).date() == day
                           for p in (PROJECT / "python" / f"day{d}").rglob("*.jsonl"))), day_folders[-1])
         if not args.no_pupil:
-            tst_dir = PROJECT / "tst_video" / f"day{dn}"
-            has_tst = tst_dir.exists() and any(p.suffix.lower() in (".mp4", ".avi", ".mov", ".mkv", ".wmv", ".m4v")
-                                               for p in tst_dir.rglob("*"))
-            if run_package_day(dn, has_tst):
+            # TST is no longer scored by the package's own TST step (2026-11-18): assays_day.py below runs the same
+            # package scorer on the FIRST 3 MIN with the per-frame mouse check (user: "TST should be 3min so just use
+            # first 3min", "always only mouse tracking"); the package run here does the pupil only
+            if run_package_day(dn, False):
                 # approved alignment fixes (added 2026-11-15): sync-aligned copy of the package's concat_out for the
                 # sessions in pupil_tst_final\alignment_fixes.csv (the user's approval); any other mismatch is only
                 # listed by pupil_session_quality.py below (ask the user first)
@@ -557,27 +697,97 @@ def main(argv=None):
                                         str(PROJECT)]).returncode
                 if rc_fp:
                     print("  !! fullpupil_sessions.py reported a problem (see above)")
+                # best-effort pupil of hard eyes (added 2026-11-16): an OPTION for the sessions the user approved in
+                # besteffort_sessions.csv - a Step 02 copy with only the pupil columns from pupil_besteffort.py's trace
+                print("\n=== BEST-EFFORT PUPIL (listed sessions only) ===")
+                rc_be = subprocess.run([sys.executable, str(TOOLS / "besteffort_sessions.py"), "--project",
+                                        str(PROJECT)]).returncode
+                if rc_be:
+                    print("  !! besteffort_sessions.py reported a problem (see above)")
+                # sessions without video that the user approved for a behavior-only Step 02 table (2026-11-16)
+                print("\n=== BEHAVIOR-ONLY TABLES (listed no-video sessions only) ===")
+                rc_bo = subprocess.run([sys.executable, str(TOOLS / "behavioronly_sessions.py"), "--project",
+                                        str(PROJECT)]).returncode
+                if rc_bo:
+                    print("  !! behavioronly_sessions.py reported a problem (see above)")
+                # whole eye of mice with eye damage (2026-11-17; wholeeye_mice.csv in the pupil tree): the one-time eye
+                # model tracks the new sessions, then their Step 02 copy gets the whole eye in the pupil columns
+                print("\n=== WHOLE EYE (mice in wholeeye_mice.csv) ===")
+                run_wholeeye()
                 # per-session pupil grade (added 2026-11-15): manual pupil_grades.csv, else automatic stability grade.
                 # All days are recomputed (a redone day's alignment check stays current); grade lines: today only
                 print("\n=== PUPIL QUALITY ===")
                 subprocess.run([sys.executable, str(TOOLS / "pupil_session_quality.py"),
-                                "--pupil-root", str(PROJECT / "pupil_tst_final"), "--report-days", str(dn)])
+                                "--pupil-root", str(pupil_root()), "--report-days", str(dn)])
                 subprocess.run([sys.executable, str(TOOLS / "pupil_guess_trace.py"),
-                                "--pupil-root", str(PROJECT / "pupil_tst_final"), "--days", str(dn)])
+                                "--pupil-root", str(pupil_root()), "--days", str(dn)])
                 print("\n=== ANALYSIS (again, now with pupil) ===")
                 quick_analysis.main(["--root", str(PROJECT)])
             # eye-box check (added 2026-11-15): the package re-uses the previous day's ROI; mice sit differently daily
             print("\n=== PUPIL ROI CHECK ===")
-            subprocess.run([sys.executable, str(TOOLS / "pupil_roi_check.py"), "--root", str(PROJECT), "--day", str(dn)])
+            subprocess.run([sys.executable, str(TOOLS / "pupil_roi_check.py"), "--root", str(PROJECT), "--day", str(dn),
+                            "--pupil-root", str(pupil_root())])
             print("  If an eye is not inside its yellow box: set \"redraw_roi\" for that session in run_all_config.json\n"
                   "  and run RUN_ALL_18DAYS.bat (it opens the ROI window and redoes the session).")
         else:
             print("\n(pupil/TST: skipped today with --no-pupil; it can be run later, finished sessions are skipped)")
+        # report-only checks (added 2026-11-15). Exit code 1 only means "there are CHECK lines", not a failure.
+        # session_check: every session of this date vs tools\protocol_expected.csv (also run by hand after each
+        # session with SESSION_CHECK.bat); pr_daily_checks: one row per mouse for the day (valve time, measured
+        # lock-out, Python-only licks the task counted, session end, PR vs the previous cohort's days 3-5).
+        print("\n=== SESSION CHECKS (report only) ===")
+        rc_sc = subprocess.run([sys.executable, "-B", str(TOOLS / "session_check.py"), "--date", day.isoformat(),
+                                "--all"]).returncode
+        if rc_sc == 1:
+            print("  CHECK lines above; reports in analysis\\session_checks\\")
+        elif rc_sc not in (0, 2):
+            print(f"  !! session_check.py ended with code {rc_sc} (see above)")
+        print("\n=== PR CHECKS (report only) ===")
+        rc_pr = subprocess.run([sys.executable, "-B", str(TOOLS / "pr_daily_checks.py"), "--project", str(PROJECT),
+                                "--day", str(dn)]).returncode
+        if rc_pr == 1:
+            print(f"  CHECK lines: analysis\\days\\day{dn}\\pr_checks_day{dn}.txt")
+        elif rc_pr:
+            print("  !! pr_daily_checks.py could not write its outputs (file open in Excel?) - see above")
+        # TST + HOT of the day (added 2026-11-18; TST/HP days 5, 10, 13, 16, 18): videos copied into tst_video /
+        # hp_video, TST scored automatically on the first 3 min -> assays\dayN\...\ManualScoringResults_<video>_AUTO.mat
+        # (the name the original Step 02 reads), HOT first-30-s copies for the hand scorer and its .mat files filed;
+        # nothing happens on days without assay videos. Before the step02 base update, which copies the assay files.
+        if not args.no_assays:
+            pkg_py = TOOLS / ".venv_pkg313" / "Scripts" / "python.exe"
+            if pkg_py.exists():
+                print()
+                if subprocess.run([str(pkg_py), "-B", str(TOOLS / "assays_day.py"), "--day", str(dn),
+                                   "--apply"]).returncode:
+                    print("  !! assays_day.py could not finish (see above)")
+            else:
+                print("\n(assays step skipped: tools\\.venv_pkg313 missing)")
         update_step02_base(dn)
-        if args.longitudinal:
+        # Step 02 + the previous cohort's figures every day since 2026-11-17 (the routine PPT shows them as the basic
+        # plots); --no-longitudinal skips it
+        if not args.no_longitudinal:
             run_longitudinal()
+        # QC summary of ALL days so far (added 2026-11-17): the daily report is QC first (user: "daily routine need to
+        # focus on QC ... later I will do analysis after 18 days"). One picture + csv; report only, changes nothing.
+        print("\n=== QC SUMMARY (all days so far) ===")
+        rc_qc = subprocess.run([sys.executable, "-B", str(TOOLS / "qc_summary.py")]).returncode
+        if rc_qc:
+            print("  !! qc_summary.py could not finish (see above)")
+        # data index (added 2026-11-18, user: "we are making csv or output data per day so in order to use and recall
+        # this for 18days later"): every saved data file with its relative path and which one is final
+        print("\n=== DATA INDEX ===")
+        if subprocess.run([sys.executable, "-B", str(TOOLS / "data_index.py"), "--quiet"]).returncode:
+            print("  !! data_index.py could not finish (see above)")
+        # routine PowerPoint (added 2026-11-17, user: "PPT: QC, problem fixed, folder address ... representative plots
+        # as fundamental, what to do better next"): analysis\\ppt\\routine_dayN_<date>.pptx
+        if not args.no_ppt:
+            print("\n=== ROUTINE PPT ===")
+            rc_ppt = subprocess.run([sys.executable, "-B", str(TOOLS / "routine_ppt.py")]).returncode
+            if rc_ppt:
+                print("  !! routine_ppt.py could not finish (see above)")
     days = sorted((PROJECT / "analysis" / "days").glob("day*")) if (PROJECT / "analysis" / "days").exists() else []
-    print("\nDone. Per-day summaries:", ", ".join(d.name for d in days) or "-")
+    print("\nDone. QC first:", PROJECT / "analysis" / "days" / "qc_summary_days1-N.png", "(red = needs a look)")
+    print("  Per-day summaries:", ", ".join(d.name for d in days) or "-")
     print(f"  {PROJECT / 'analysis' / 'days'}\\dayN\\figs\\00_day_dashboard.png")
     print(f"  across days: {PROJECT / 'analysis' / 'master_day_level.csv'} and analysis\\figs_across_days\\")
     return rc

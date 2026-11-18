@@ -542,7 +542,7 @@ def main(argv=None):
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--jobs", type=int, default=3, help="full-pupil passes (MATLAB) at the same time for the mouse option")
     a = ap.parse_args(argv)
-    root = a.pupil_root or a.project / "pupil_tst_final"
+    root = a.pupil_root or CC.active_pupil_root(a.project)   # 2026-11-17: the tree the tables use
     bad = 0
     if (a.screen or a.screen_only) and not a.no_screen:
         sp = root / "fullpupil_screen.csv"

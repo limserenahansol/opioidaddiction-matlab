@@ -1,0 +1,551 @@
+<title>Eye Outline Drawing</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+/* Layout: sticky top bar (progress, filter, contrast) · eye-box viewer beside the answer panel (stacked under 860px) · frame strip below */
+:root{
+  --bg:#eef2f3; --panel:#ffffff; --ink:#13202a; --muted:#56656e; --line:#d0d9dd; --chip:#e3eaed;
+  --focus:#0a6aa1; --on-focus:#ffffff; --note-bg:#fff3dc; --note-ink:#6c4100;
+  --stage:#0b1013; --stage-ink:#c9d4d9;
+  --ov-track:#36d96b; --ov-be:#ffa42e; --ov-mine:#ff4fc4;
+  --f-body:"Noto Sans KR","Inter",system-ui,"Malgun Gothic","Apple SD Gothic Neo",sans-serif;
+  --f-head:"Space Grotesk","Noto Sans KR",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e1417; --panel:#162127; --ink:#e2ebee; --muted:#93a5ad; --line:#2b3c44; --chip:#1f2d34;
+  --focus:#5ec3ff; --on-focus:#06202e; --note-bg:#36270f; --note-ink:#ffd593;
+  --stage:#04070a; --stage-ink:#c9d4d9; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1417; --panel:#162127; --ink:#e2ebee; --muted:#93a5ad; --line:#2b3c44; --chip:#1f2d34;
+  --focus:#5ec3ff; --on-focus:#06202e; --note-bg:#36270f; --note-ink:#ffd593;
+  --stage:#04070a; --stage-ink:#c9d4d9; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 28px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:12px 10px;
+  border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center}
+h1{font-family:var(--f-head);font-size:20px;line-height:1.2;margin:0;font-weight:600;letter-spacing:.01em;text-wrap:balance}
+.progress{display:flex;align-items:center;gap:8px;font-variant-numeric:tabular-nums;font-size:14px}
+.bar{width:140px;max-width:30vw;height:8px;border-radius:4px;background:var(--chip);overflow:hidden}
+.bar>i{display:block;height:100%;width:0;background:var(--focus)}
+.status{font-size:13px;color:var(--muted)}
+.status.warn{color:var(--note-ink);background:var(--note-bg);padding:2px 8px;border-radius:6px}
+.ctl{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+select,input[type=text]{font:inherit;font-size:14px;color:var(--ink);background:var(--panel);border:1px solid var(--line);
+  border-radius:6px;padding:5px 8px;min-width:0;max-width:100%}
+input[type=range]{width:100px;accent-color:var(--focus)}
+.work{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:18px;margin-top:16px;align-items:start}
+@media (max-width:860px){.work{grid-template-columns:minmax(0,1fr)}}
+.viewer{background:var(--stage);border-radius:10px;padding:10px;min-width:0}
+.stage{position:relative;margin:0 auto;width:320px;height:256px}
+.stage img,.stage svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+.stage img{user-select:none;-webkit-user-drag:none;pointer-events:none}
+.stage svg{touch-action:none;cursor:crosshair;overflow:visible}
+.ov-track{fill:none;stroke:var(--ov-track);stroke-width:2;vector-effect:non-scaling-stroke}
+.ov-be{fill:none;stroke:var(--ov-be);stroke-width:2.5;stroke-dasharray:6 5;vector-effect:non-scaling-stroke}
+.ov-mine{fill:none;stroke:var(--ov-mine);stroke-width:2.5;vector-effect:non-scaling-stroke}
+.ov-mine.temp{stroke-dasharray:3 3}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--stage-ink);margin-top:8px;justify-content:center}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:13px;height:13px;border-radius:50%;border:2px solid currentColor;flex:none;display:inline-block}
+.sw.track{color:var(--ov-track)} .sw.be{color:var(--ov-be);border-style:dashed} .sw.mine{color:var(--ov-mine)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.where{font-family:var(--f-head);font-size:17px;font-weight:600;margin:0}
+.meta{display:grid;grid-template-columns:auto minmax(0,1fr);gap:3px 10px;font-size:13px;margin:0}
+.meta dt{color:var(--muted)} .meta dd{margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.reason{font-weight:700}
+.answers{display:grid;gap:7px}
+button{font:inherit;font-size:14px;color:var(--ink);background:var(--chip);border:1px solid var(--line);border-radius:8px;
+  padding:8px 10px;text-align:left;cursor:pointer;display:flex;align-items:center;gap:8px}
+button:hover{border-color:var(--focus)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.on{border-color:var(--focus);box-shadow:inset 0 0 0 1px var(--focus);background:var(--panel)}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+button .grow{flex:1}
+kbd{font-family:ui-monospace,Consolas,monospace;font-size:12px;border:1px solid var(--line);border-bottom-width:2px;
+  border-radius:4px;padding:0 5px;color:var(--muted);background:var(--panel)}
+.mine-line{font-size:13px;color:var(--muted);min-height:1.4em}
+.nav{display:flex;gap:7px;flex-wrap:wrap}
+.nav button{flex:1 1 auto;justify-content:center}
+.help{font-size:13px;color:var(--muted);margin:0}
+.help b{color:var(--ink)}
+.strip-head{margin:22px 0 8px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.strip-head h2{font-family:var(--f-head);font-size:16px;margin:0}
+.strip{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px}
+.thumb{padding:4px;flex-direction:column;align-items:stretch;gap:4px;background:var(--panel)}
+.thumb img{width:100%;aspect-ratio:5/4;object-fit:cover;border-radius:4px;background:var(--stage)}
+.thumb .t{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.thumb.cur{outline:2px solid var(--focus);outline-offset:1px}
+.chip{font-size:11px;border-radius:999px;padding:0 7px;align-self:flex-start;background:var(--chip);color:var(--muted)}
+.chip.done{background:var(--focus);color:var(--on-focus)}
+.empty{color:var(--stage-ink);text-align:center;padding:40px 10px}
+.toast{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));
+  background:var(--ink);color:var(--bg);padding:8px 12px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.show{opacity:1}
+@media (prefers-reduced-motion:reduce){.toast{transition:none}}
+</style>
+
+<script id="frames-data" type="application/json">/*FRAMES_JSON*/</script>
+
+<header>
+  <h1>9670f black 눈 전체 그리기</h1>
+  <div class="progress"><span>답한 프레임</span><span class="bar"><i id="bar"></i></span><b id="count">0 / 0</b></div>
+  <label class="ctl" for="filter">보기
+    <select id="filter"></select></label>
+  <label class="ctl" for="bright">밝기 <input id="bright" type="range" min="0.6" max="2.6" step="0.05" value="1"></label>
+  <label class="ctl" for="contrast">대비 <input id="contrast" type="range" min="0.6" max="3" step="0.05" value="1"></label>
+  <span id="status" class="status">저장소 연결 중…</span>
+</header>
+
+<div class="work">
+  <section class="viewer" id="viewer" aria-label="눈 영역">
+    <div class="stage" id="stage">
+      <img id="img" alt="">
+      <svg id="svg" viewBox="0 0 160 128" preserveAspectRatio="none" role="img" aria-label="눈 윤곽 그리기 영역"></svg>
+    </div>
+    <div class="empty" id="empty" hidden>이 보기에는 프레임이 없습니다. 위의 ‘보기’를 바꿔 주세요.</div>
+    <div class="legend">
+      
+      <span hidden><i class="sw be"></i><span id="legend-be"></span></span>
+      <span><i class="sw mine"></i>분홍 = 내가 그린 눈 윤곽</span>
+    </div>
+  </section>
+
+  <aside class="panel" aria-label="답">
+    <p class="where" id="where">–</p>
+    <dl class="meta">
+      <dt>이유</dt><dd class="reason" id="m-reason">–</dd>
+      <dt>시간</dt><dd id="m-time">–</dd>
+      <dt hidden>표</dt><dd id="m-table" hidden>–</dd>
+      <dt>세션</dt><dd id="m-session">–</dd>
+    </dl>
+    <div class="answers">
+      <button id="a-table" type="button" hidden><i class="sw track"></i><span class="grow">초록이 맞음</span><kbd>1</kbd></button>
+      <button id="a-be" type="button"><i class="sw be"></i><span class="grow">주황이 맞음</span><kbd>2</kbd></button>
+      <button id="a-none" type="button"><span class="grow">눈이 완전히 감김 (보이는 눈 없음)</span><kbd>N</kbd></button>
+      <button id="a-unsure" type="button"><span class="grow">모르겠음</span><kbd>S</kbd></button>
+    </div>
+    <p class="help"><b>그리는 법:</b> 눈꺼풀 사이로 보이는 눈 전체(어둡든 뿌옇게 하얗든)의 윤곽을 따라, 누른 채로 한 바퀴 그리고 손을 떼면 저장됩니다. 다시 그리면 바뀝니다. 밝기·대비를 올리면 잘 보입니다. 눈이 완전히 감겼으면 N을 누르세요.</p>
+    <div class="mine-line" id="mine" aria-live="polite"></div>
+    <label class="ctl" for="note">메모 <input id="note" type="text" placeholder="선택 (예: 수염이 가림)" style="flex:1"></label>
+    <p class="help" style="margin-top:-6px">메모는 답과 함께 저장됩니다 (답을 먼저 고르세요).</p>
+    <div class="nav">
+      <button id="prev" type="button">← 이전</button>
+      <button id="next" type="button">다음 →</button>
+      <button id="next-todo" type="button">다음 미완료 <kbd>Space</kbd></button>
+    </div>
+    <div class="nav">
+      <button id="hide" type="button">윤곽 숨기기 <kbd>H</kbd></button>
+      <button id="a-clear" type="button">내 답 지우기 <kbd>Del</kbd></button>
+    </div>
+  </aside>
+</div>
+
+<div class="strip-head"><h2>프레임</h2><span class="status" id="strip-note"></span></div>
+<div class="strip" id="strip"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  "use strict";
+  const DATA = JSON.parse(document.getElementById("frames-data").textContent);
+  const FR = DATA.frames || [];
+  const SES = new Map((DATA.sessions || []).map(s => [s.session, s]));
+  const byId = new Map(FR.map(f => [f.id, f]));
+  const $ = s => document.querySelector(s);
+  const NS = "http://www.w3.org/2000/svg";
+  const img = $("#img"), svg = $("#svg"), stage = $("#stage");
+
+  let marks = {};          // frame id -> answer body (from the file / the store / this browser)
+  let mode = "connecting"; // connecting | server | db | cache | slow | local | error
+  let col = null, uid = null;
+  let view = FR.slice(), cur = 0, showOv = true, drag = null, lockUntil = 0;
+  const queue = new Map(); // one write at a time per frame
+
+  const REASON = r => r.startsWith("not found (no pupil") ? "못 찾음 (표에도 동공 없음)"
+    : r.startsWith("not found") ? "못 찾음 (패키지가 이전 값을 유지)"
+    : r.startsWith("no pupil") ? "표에 동공 없음 (최선 추적: 안 보임)"
+    : r.startsWith("far") ? "평소 자리에서 멂 (다른 것을 고른 듯)"
+    : r.startsWith("size in the") || r.startsWith("unusual") ? "크기가 이 세션의 바깥 2 % (다른 것을 골랐을 수 있음)"
+    : r.startsWith("the package and best effort") ? "패키지와 최선 추적이 다른 곳을 고름 (어느 쪽이 맞나요?)"
+    : r.startsWith("training frame") ? "학습용 프레임: 새 패키지가 배울 동공을 그려 주세요 (초록이 맞으면 1, 안 보이면 N)"
+    : r.startsWith("you drew") ? "예시 그림에 그려 주신 프레임 (분홍 = 제가 읽은 그림, 틀리면 다시 그려 주세요)"
+    : r.startsWith("example") ? "예시 프레임 (그리지 않으셨음: 초록이 맞으면 1)" : r;
+  const CHOICE = {table: "초록이 맞음", be: "주황이 맞음", draw: "직접 그림", none: "눈 감김", unsure: "모르겠음"};
+  const SRC = s => s === "package" ? "패키지" : s === "best effort" ? "최선 추적(승인됨)" : s;
+  const BE = f => f.be_src === "package" ? "패키지" : "최선 추적(승인 전)";
+  const two = n => String(n).padStart(2, "0");
+  const fmtT = s => two(Math.floor(s / 60)) + ":" + two(Math.floor(s % 60));
+  const lab = f => `${f.day}일 · ${f.cage} ${f.mouse}`;
+  const r2 = v => Math.round(v * 100) / 100;
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+  // ---------- saving
+  const LS = "wholeeye-marks-v1";     // no server: the whole answer map lives in this browser
+  const LSP = "wholeeye-pending-v1";  // server / store: only the writes that did not go through {id: body|null}
+  function lsGet(k) { try { return JSON.parse(localStorage.getItem(k) || "{}") || {}; } catch (e) { return {}; } }
+  function lsPut(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }
+  function addPending(id, body) { const p = lsGet(LSP); p[id] = body; return lsPut(LSP, p); }
+  function dropPending(id) { const p = lsGet(LSP); if (id in p) { delete p[id]; lsPut(LSP, p); } }
+  function write(id, body) {      // resolves when stored; on failure the write is kept as pending and re-sent later
+    const prev = queue.get(id) || Promise.resolve();
+    const next = prev.catch(() => {}).then(async () => {
+      if (mode === "server" || mode === "error-server") {
+        const r = await fetch("api/marks/" + encodeURIComponent(id), {method: body ? "PUT" : "DELETE",
+          headers: {"Content-Type": "application/json"}, body: body ? JSON.stringify(body) : undefined});
+        if (!r.ok) { let msg = "HTTP " + r.status; try { msg = (await r.json()).error || msg; } catch (e) { /* no body */ } throw new Error(msg); }
+      } else if (col) {
+        if (body) await col.doc(id).set(body); else await col.doc(id).delete();
+      } else { throw new Error("no store"); }
+    });
+    queue.set(id, next);
+    return next.then(() => { dropPending(id); }, e => { addPending(id, body); throw e; });
+  }
+  function persist(id, body) {
+    const m = Object.assign({}, marks);
+    if (body) m[id] = body; else delete m[id];
+    marks = m;
+    render();
+    if (mode === "local") {
+      toast(lsPut(LS, marks) ? "이 브라우저에만 저장했습니다 (서버가 꺼져 있음)" : "저장하지 못했습니다: 브라우저 저장소가 꺼져 있습니다", 4000);
+      return;
+    }
+    if (mode !== "server" && mode !== "error-server" && !col) {   // not connected yet
+      toast(addPending(id, body) ? "연결 전이라 이 브라우저에 두었다가 연결되면 저장합니다" : "저장하지 못했습니다", 4000);
+      return;
+    }
+    write(id, body).then(() => toast(body ? "저장했습니다" : "지웠습니다"),
+      e => toast("저장하지 못했습니다 (" + ((e && (e.message || e.code)) || "오류") + "). 이 브라우저에 두었다가 다시 보냅니다.", 6000));
+  }
+  async function replayPending() {   // writes that did not go through: send them as they are (deletes too)
+    const P = lsGet(LSP);
+    for (const [id, b] of Object.entries(P)) {
+      if (!byId.has(id)) { dropPending(id); continue; }
+      const m = Object.assign({}, marks);
+      if (b) m[id] = b; else delete m[id];
+      marks = m;
+      try { await write(id, b); } catch (e) { /* stays pending */ }
+    }
+    render();
+  }
+  function bodyFor(f, choice, ellipse) {
+    return {frame_id: f.id, session: f.session, day: f.day, cage: f.cage, mouse: f.mouse, frame: f.frame,
+            image_frame: f.image_frame || f.frame, t_s: f.t_s, reason: f.reason, choice: choice,
+            ellipse: ellipse || null, crop: {w: f.w, h: f.h}, table: f.table || null, table_src: f.table_src || null,
+            be: f.be || null, be_src: f.be_src || null, note: ($("#note").value || "").trim(), by: uid || null,
+            at: new Date().toISOString(), v: 2};
+  }
+  function setStatus(m, code) {
+    const el = $("#status");
+    const T = {connecting: "저장소 연결 중…",
+               server: "프로젝트 폴더에 저장 (analysis\\wholeeye\\teach\\marks.json, 제가 읽을 수 있습니다)",
+               db: "Claude 저장소에 저장 (제가 읽을 수 있습니다)", cache: "저장소 확인 중 (지난번 내용)",
+               slow: "저장소가 아직 답하지 않습니다. 답은 연결되면 저장됩니다.",
+               local: "서버가 꺼져 있어 이 브라우저에만 저장됩니다. tools\\pupil_teach_server.py를 켜고 http://127.0.0.1:8766/ 로 여세요.",
+               file: "파일로 열려서 저장되지 않습니다. tools\\pupil_teach_server.py를 켜고 http://127.0.0.1:8766/ 로 여세요.",
+               error: "저장 오류 (" + (code || "?") + "). 답은 이 브라우저에 두고 다시 보냅니다."};
+    el.textContent = T[m] || m;
+    el.classList.toggle("warn", ["slow", "local", "file", "error"].includes(m));
+  }
+  async function tryServer() {   // the local helper server (tools/pupil_teach_server.py)
+    let r;
+    try { r = await fetch("api/marks", {cache: "no-store"}); } catch (e) { return false; }
+    if (r.status === 404) return false;
+    if (!r.ok) {   // the helper is there but cannot read marks.json: never fall back silently
+      mode = "error-server"; let msg = "HTTP " + r.status;
+      try { msg = (await r.json()).error || msg; } catch (e) { /* no body */ }
+      setStatus("error", msg); render(); return true;
+    }
+    let m;
+    try { m = await r.json(); } catch (e) { return false; }
+    if (!m || typeof m !== "object" || Array.isArray(m)) return false;
+    marks = {};
+    for (const [id, b] of Object.entries(m)) if (byId.has(id)) marks[id] = b;
+    mode = "server"; setStatus("server");
+    const L = lsGet(LS);   // answers an older version of this page kept in the browser
+    for (const [id, b] of Object.entries(L)) if (byId.has(id) && !marks[id]) addPending(id, b);
+    try { localStorage.removeItem(LS); } catch (e) { /* storage off */ }
+    await replayPending();
+    return true;
+  }
+  async function refreshServer() {   // the file may have been changed outside this tab
+    if (mode !== "server") return;
+    try {
+      const r = await fetch("api/marks", {cache: "no-store"});
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const m = await r.json(), P = lsGet(LSP), n = {};
+      for (const [id, b] of Object.entries(m)) if (byId.has(id)) n[id] = b;
+      for (const [id, b] of Object.entries(P)) { if (b) n[id] = b; else delete n[id]; }   // unsent changes win
+      marks = n; render();
+    } catch (e) { setStatus("error", e.message); }
+  }
+  async function connect() {
+    setStatus("connecting");
+    if (location.protocol === "file:") { mode = "local"; marks = lsGet(LS); setStatus("file"); render(); return; }
+    const c = window.claude;
+    let db = null;
+    if (c && typeof c.use === "function") { try { db = await c.use("db"); } catch (e) { db = null; } }
+    if (!db) { if (!(await tryServer())) goLocal(); return; }
+    try { const u = await c.use("user"); uid = u ? await u.id() : null; } catch (e) { uid = null; }
+    let ref;
+    try { ref = db.collection("marks"); } catch (e) { return goLocal(); }
+    col = ref;
+    const timer = setTimeout(() => { if (mode === "connecting" || mode === "cache") { mode = "slow"; setStatus("slow"); } }, 10000);
+    let first = true;
+    ref.onSnapshot(snap => {
+      const m = {};
+      for (const d of snap.docs) if (d.exists && byId.has(d.id)) m[d.id] = d.data();
+      const P = lsGet(LSP);
+      for (const [id, b] of Object.entries(P)) { if (b) m[id] = b; else delete m[id]; }
+      marks = m;
+      mode = snap.metadata.fromCache ? "cache" : "db";
+      if (!snap.metadata.fromCache) { clearTimeout(timer); if (first) { first = false; replayPending(); } }
+      setStatus(mode);
+      render();
+    }, e => { clearTimeout(timer); mode = "error"; setStatus("error", e && e.code); });
+  }
+  function goLocal() { mode = "local"; marks = lsGet(LS); setStatus("local"); render(); }
+
+  // ---------- view
+  function frame() { return view[cur]; }
+  function sizeStage() {
+    const f = frame(); if (!f) return;
+    const W = Math.max(200, $("#viewer").clientWidth - 20);
+    const H = Math.max(220, window.innerHeight * 0.66);
+    const s = Math.min(W / f.w, H / f.h);
+    stage.style.width = (f.w * s) + "px";
+    stage.style.height = (f.h * s) + "px";
+  }
+  function el(tag, attrs, cls) {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    if (cls) e.setAttribute("class", cls);
+    return e;
+  }
+  // stored coordinates are crop pixels with pixel centres at integers (0-based); the SVG's unit square [i, i+1]
+  // is pixel i, so a centre c is drawn at c + 0.5
+  function drawOverlays() {
+    const f = frame();
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    if (!f || !showOv) return;
+    if (f.table) svg.appendChild(el("circle", {cx: f.table.cx + 0.5, cy: f.table.cy + 0.5, r: f.table.d / 2}, "ov-track"));
+    if (f.be) svg.appendChild(el("circle", {cx: f.be.cx + 0.5, cy: f.be.cy + 0.5, r: f.be.d / 2}, "ov-be"));
+    const m = marks[f.id];
+    if (drag && drag.moved && drag.pts.length > 1) {   // the outline being drawn (SVG units)
+      svg.appendChild(el("polyline", {points: drag.pts.map(([x, y]) => `${x},${y}`).join(" ")}, "ov-mine temp"));
+      return;
+    }
+    const e = m && m.choice === "draw" && m.ellipse ? m.ellipse : null;
+    if (e && e.poly) {   // a stored outline: crop pixels with centres at integers, drawn at +0.5
+      svg.appendChild(el("polygon", {points: e.poly.map(([x, y]) => `${x + 0.5},${y + 0.5}`).join(" ")}, "ov-mine"));
+    } else if (e) {
+      svg.appendChild(el("ellipse", {cx: e.cx + 0.5, cy: e.cy + 0.5, rx: Math.max(0.5, e.w / 2), ry: Math.max(0.5, e.h / 2)}, "ov-mine"));
+    }
+  }
+  function render() {
+    const done = FR.filter(f => marks[f.id]).length;
+    $("#count").textContent = `${done} / ${FR.length}`;
+    $("#bar").style.width = (FR.length ? 100 * done / FR.length : 0) + "%";
+    const f = frame();
+    $("#empty").hidden = !!f;
+    stage.hidden = !f;
+    if (!f) { updateStrip(); return; }
+    if (img.getAttribute("src") !== f.img) img.setAttribute("src", f.img || "");
+    img.alt = `${lab(f)} 프레임 ${f.frame}`;
+    svg.setAttribute("viewBox", `0 0 ${f.w} ${f.h}`);
+    sizeStage();
+    drawOverlays();
+    const s = SES.get(f.session) || {};
+    $("#where").textContent = `${lab(f)} · 프레임 ${f.frame}`;
+    $("#m-reason").textContent = REASON(f.reason);
+    $("#m-time").textContent = fmtT(f.t_s) + (f.run_s > 0 ? ` (이 상태가 ${f.run_s.toFixed(1)}초 이어짐)` : "");
+    $("#m-table").textContent = f.table ? `${SRC(f.table_src)} · 지름 ${f.table.d.toFixed(0)} px` : "없음";
+    $("#m-session").textContent = s.session ? `${s.session} (전체 ${s.frames} 프레임)` : "–";
+    $("#legend-be").textContent = "주황 점선 = " + (f.be ? BE(f) : "다른 추적 (이 프레임에는 없음)");
+    $("#a-be").querySelector(".grow").textContent = `주황이 맞음 (${f.be ? BE(f) : "–"})`;
+    const m = marks[f.id];
+    for (const [id, c] of [["#a-table", "table"], ["#a-be", "be"], ["#a-none", "none"], ["#a-unsure", "unsure"]])
+      $(id).classList.toggle("on", !!m && m.choice === c);
+    $("#a-table").disabled = !f.table;
+    $("#a-be").hidden = !f.be;
+    $("#a-clear").disabled = !m;
+    const readByClaude = !!m && m.by === "claude-read-from-screenshot";   // pre-loaded from the example images
+    $("#mine").textContent = !m ? "아직 답이 없습니다." : (m.choice === "draw" && m.ellipse
+      ? (m.ellipse.from_click ? "내 답: 동공 위치 (한 번 눌러 둠, 크기 없음)"
+                              : `내 답: 직접 그림 (가로 ${m.ellipse.w.toFixed(0)} × 세로 ${m.ellipse.h.toFixed(0)} px)`)
+      : `내 답: ${CHOICE[m.choice] || m.choice}`)
+      + (readByClaude ? " · 예시 그림에서 제가 읽은 것 (크기는 크게 읽었을 수 있음, 맞게 다시 그려 주세요)" : "");
+    if (document.activeElement !== $("#note")) $("#note").value = (m && !readByClaude && m.note) || "";
+    $("#hide").textContent = showOv ? "윤곽 숨기기 " : "윤곽 보이기 ";
+    $("#hide").appendChild(Object.assign(document.createElement("kbd"), {textContent: "H"}));
+    updateStrip();
+  }
+
+  // ---------- strip
+  function buildStrip() {
+    const S = $("#strip"); S.textContent = "";
+    view.forEach((f, i) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "thumb"; b.dataset.i = i;
+      const im = document.createElement("img"); im.loading = "lazy"; im.alt = ""; if (f.img) im.src = f.img;
+      const t = document.createElement("span"); t.className = "t";
+      t.textContent = `${f.day}일 ${f.cage.slice(-1) === "m" ? "♂" : "♀"} ${f.mouse} · ${fmtT(f.t_s)}`;
+      const c = document.createElement("span"); c.className = "chip";
+      b.append(im, t, c);
+      b.addEventListener("click", () => { cur = i; drag = null; b.blur(); render(); window.scrollTo({top: 0, behavior: "auto"}); });
+      S.appendChild(b);
+    });
+    $("#strip-note").textContent = `${view.length}장 · 누르면 그 프레임으로 갑니다`;
+  }
+  function updateStrip() {
+    const S = $("#strip");
+    [...S.children].forEach((b, i) => {
+      const f = view[i]; const m = f && marks[f.id];
+      b.classList.toggle("cur", i === cur);
+      const c = b.querySelector(".chip");
+      c.textContent = m ? (CHOICE[m.choice] || "답함") : "미완료";
+      c.classList.toggle("done", !!m);
+    });
+  }
+  function buildFilter() {
+    const F = $("#filter"); F.textContent = "";
+    const add = (v, t) => { const o = document.createElement("option"); o.value = v; o.textContent = t; F.appendChild(o); };
+    const nAsk = FR.filter(f => f.ask).length;
+    if (nAsk) add("ask", `부탁드리는 프레임 (세션당 3장 이하, ${nAsk}장)`);
+    const nTrain = FR.filter(f => (f.reason || "").startsWith("training frame")).length;
+    if (nTrain) add("train", `학습용 프레임 (새 패키지, ${nTrain}장)`);
+    add("all", `전체 (${FR.length}장)`);
+    add("todo", "아직 답하지 않은 것");
+    for (const s of SES.values()) {
+      const n = FR.filter(f => f.session === s.session).length;
+      if (n) add(s.session, `${s.day}일 ${s.cage} ${s.mouse} · ${n}장`);
+    }
+  }
+  function askView() {   // the frames asked for (at most 3 per session); cage 9670f first: it has no exact drawings yet
+    return FR.filter(f => f.ask).sort((a, b) => (a.cage === "9670f" ? 0 : 1) - (b.cage === "9670f" ? 0 : 1)
+      || a.day - b.day || a.mouse.localeCompare(b.mouse) || a.frame - b.frame);
+  }
+  function applyFilter() {
+    const v = $("#filter").value;
+    view = v === "all" ? FR.slice() : v === "todo" ? FR.filter(f => !marks[f.id]) : v === "ask" ? askView()
+      : v === "train" ? FR.filter(f => (f.reason || "").startsWith("training frame")) : FR.filter(f => f.session === v);
+    cur = 0; drag = null; buildStrip(); render();
+  }
+
+  // ---------- answers and drawing
+  function answer(choice, ellipse) {
+    const f = frame(); if (!f) return;
+    if (Date.now() < lockUntil) return;          // a second answer key right after the first: ignored
+    if ((choice === "table" && !f.table) || (choice === "be" && !f.be)) return;
+    persist(f.id, bodyFor(f, choice, ellipse));
+    if (choice !== "draw") {
+      lockUntil = Date.now() + 260;
+      const i = cur;
+      setTimeout(() => { if (cur === i) go(1); }, 200);
+    }
+  }
+  function go(d) { if (!view.length) return; cur = clamp(cur + d, 0, view.length - 1); drag = null; render(); }
+  function nextTodo() {
+    if (!view.length) return;
+    for (let k = 1; k <= view.length; k++) { const i = (cur + k) % view.length; if (!marks[view[i].id]) { cur = i; drag = null; render(); return; } }
+    toast("이 보기의 프레임에 모두 답했습니다");
+  }
+  function pt(e) {   // pointer -> SVG units (0..w, 0..h); the SVG box is the image box
+    const f = frame(), r = svg.getBoundingClientRect();
+    return {x: clamp((e.clientX - r.left) / r.width * f.w, 0, f.w), y: clamp((e.clientY - r.top) / r.height * f.h, 0, f.h)};
+  }
+  function box(d) {   // drag in SVG units -> ellipse in stored coordinates (pixel centres at integers)
+    const w = Math.abs(d.x1 - d.x0), h = Math.abs(d.y1 - d.y0);
+    return {cx: r2((d.x0 + d.x1) / 2 - 0.5), cy: r2((d.y0 + d.y1) / 2 - 0.5), w: r2(w), h: r2(h)};
+  }
+  svg.addEventListener("pointerdown", e => {
+    if (!frame() || e.button !== 0) return;
+    e.preventDefault();
+    try { svg.setPointerCapture(e.pointerId); } catch (x) { /* older engines */ }
+    const p = pt(e);
+    drag = {x0: p.x, y0: p.y, x1: p.x, y1: p.y, id: e.pointerId, sx: e.clientX, sy: e.clientY, moved: false, pts: [[p.x, p.y]]};
+  });
+  svg.addEventListener("pointermove", e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const p = pt(e); drag.x1 = p.x; drag.y1 = p.y;
+    const q = drag.pts[drag.pts.length - 1];
+    if (Math.hypot(p.x - q[0], p.y - q[1]) >= 0.6) drag.pts.push([p.x, p.y]);
+    if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) >= 6) drag.moved = true;   // click vs drag: screen px
+    if (drag.moved) drawOverlays();
+  });
+  function endDrag(e, keep) {
+    if (!drag || e.pointerId !== drag.id) return;
+    const p = pt(e); drag.x1 = p.x; drag.y1 = p.y;
+    if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) >= 6) drag.moved = true;
+    const d = drag; drag = null;
+    if (!keep) { drawOverlays(); return; }
+    const f = frame();
+    if (!d.moved) { drawOverlays(); toast("누른 채로 끌어서 눈 윤곽을 따라 한 바퀴 그려 주세요."); return; }
+    const P = d.pts.concat([[p.x, p.y]]);
+    let A = 0;
+    for (let i = 0; i < P.length; i++) { const [xa, ya] = P[i], [xb, yb] = P[(i + 1) % P.length]; A += xa * yb - xb * ya; }
+    A = Math.abs(A) / 2;
+    const xs = P.map(v => v[0]), ys = P.map(v => v[1]);
+    const X0 = Math.min(...xs), X1 = Math.max(...xs), Y0 = Math.min(...ys), Y1 = Math.max(...ys);
+    if (A < 6 || P.length < 4) { drawOverlays(); toast("너무 작아서 저장하지 않았습니다. 눈 윤곽을 따라 한 바퀴 그려 주세요."); return; }
+    answer("draw", {poly: P.map(([x, y]) => [r2(x - 0.5), r2(y - 0.5)]), cx: r2((X0 + X1) / 2 - 0.5), cy: r2((Y0 + Y1) / 2 - 0.5),
+                    w: r2(X1 - X0), h: r2(Y1 - Y0), area: r2(A)});
+  }
+  svg.addEventListener("pointerup", e => endDrag(e, true));
+  svg.addEventListener("pointercancel", e => endDrag(e, false));
+
+  const click = (id, fn) => $(id).addEventListener("click", e => { e.currentTarget.blur(); fn(); });
+  click("#a-table", () => answer("table"));
+  click("#a-be", () => answer("be"));
+  click("#a-none", () => answer("none"));
+  click("#a-unsure", () => answer("unsure"));
+  click("#a-clear", () => { const f = frame(); if (f && marks[f.id]) persist(f.id, null); });
+  click("#prev", () => go(-1));
+  click("#next", () => go(1));
+  click("#next-todo", nextTodo);
+  click("#hide", () => { showOv = !showOv; render(); });
+  $("#note").addEventListener("change", () => {   // only the note changes; who drew it stays the same
+    const f = frame(); if (!f || !marks[f.id]) return;
+    persist(f.id, Object.assign({}, marks[f.id], {note: ($("#note").value || "").trim(), note_at: new Date().toISOString()}));
+  });
+  $("#filter").addEventListener("change", applyFilter);
+  const filt = () => { img.style.filter = `brightness(${$("#bright").value}) contrast(${$("#contrast").value})`; };
+  $("#bright").addEventListener("input", filt);
+  $("#contrast").addEventListener("input", filt);
+  document.addEventListener("keydown", e => {
+    if (e.repeat) return;                                       // a held key must not answer many frames
+    if (e.target.closest && e.target.closest("input, select, textarea")) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = e.key, kl = k.toLowerCase();
+    if (k === "1") answer("table");
+    else if (k === "2") answer("be");
+    else if (kl === "n") answer("none");
+    else if (kl === "s") answer("unsure");
+    else if (k === "ArrowRight") go(1);
+    else if (k === "ArrowLeft") go(-1);
+    else if (k === " ") nextTodo();
+    else if (kl === "h") { showOv = !showOv; render(); }
+    else if (k === "Delete" || k === "Backspace") { const f = frame(); if (f && marks[f.id]) persist(f.id, null); }
+    else return;
+    e.preventDefault();
+  });
+  window.addEventListener("resize", sizeStage);
+  window.addEventListener("focus", refreshServer);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshServer(); });
+
+  let tt = null;
+  function toast(msg, ms) {
+    const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+    clearTimeout(tt); tt = setTimeout(() => t.classList.remove("show"), ms || 1800);
+  }
+
+  buildFilter();
+  if ($("#filter").value === "ask") view = askView();
+  else if ($("#filter").value === "train") view = FR.filter(f => (f.reason || "").startsWith("training frame"));
+  buildStrip();
+  render();
+  connect();
+  window.__wholeEye = {get marks() { return marks; }, get mode() { return mode; }, frames: FR};
+})();
+</script>

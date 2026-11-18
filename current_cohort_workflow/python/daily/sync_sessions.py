@@ -47,6 +47,32 @@ VALVE_LICK_PAD_S = 0.03       # a lick overlapping valve-open (+30 ms) is flagge
 BOUNCE_S = 0.001              # reward-channel pulses closer than this are one valve opening (contact bounce)
 PY_ONLY_SKIP = {"meta", "lick", "reward_cmd"}
 OFFSETS_FILE = "video_offsets.csv"   # optional, in <batch>_sync: day,session,first_pulse_in_video
+# optional (2026-11-17), in <batch>_sync: a video that lost frames INSIDE the session, only for rows the user approved:
+# day,session,first_uncertain_frame,first_frame_after,frames_lost,approved,reason  ->  video frame k = pulse k before
+# first_uncertain_frame, = pulse k + frames_lost from first_frame_after on; the frames in between (where the loss
+# happened, not known exactly) and their pulses are left unmatched
+DROPS_FILE = "video_drops.csv"
+
+
+def read_drops(out_root: Path) -> dict:
+    """{(day, session): (first_uncertain_frame, first_frame_after, frames_lost, signature)} of approved rows"""
+    p = out_root / DROPS_FILE
+    res = {}
+    if p.exists():
+        try:
+            with open(p, newline="", encoding="utf-8-sig") as f:
+                for r in csv.DictReader(f):
+                    ok = str(r.get("approved", "")).strip().lower()
+                    if not (ok.startswith("yes") or re.match(r"\d{4}-\d{2}-\d{2}", ok)):
+                        continue
+                    try:
+                        fa, fb, n = int(r["first_uncertain_frame"]), int(r["first_frame_after"]), int(r["frames_lost"])
+                    except (KeyError, ValueError):
+                        continue
+                    res[(r.get("day", "").strip(), r.get("session", "").strip())] = (fa, fb, n, f"{fa}-{fb}:{n}")
+        except OSError:
+            pass
+    return res
 
 
 # ----------------------------------------------------------------------------- helpers
@@ -314,7 +340,7 @@ def fit_clock(py_rew, valve_r, rmatch, py_lick, lick_r, lmatch, a_anchor):
 
 
 # ----------------------------------------------------------------------------- one session
-def process_session(s: dict, out_dir: Path, ffmpeg, offsets: dict) -> dict:
+def process_session(s: dict, out_dir: Path, ffmpeg, offsets: dict, drops: dict = None) -> dict:
     name, day = s["name"], s["day"]
     warn, info = [], list(s.get("found", []))
     status = "OK"
@@ -515,6 +541,18 @@ def process_session(s: dict, out_dir: Path, ffmpeg, offsets: dict) -> dict:
         info.append("no .sal file next to the CSV - skipped the Saleae start-time check")
 
     have_video = n_frames is not None and not vid.get("error")
+    # frames lost INSIDE the video (video_drops.csv, approved rows only; 2026-11-17)
+    drop, drop_sig = None, ""
+    if have_video and drops and (day, name) in drops:
+        fa, fb, nl, sig = drops[(day, name)]
+        if len(cam) - n_frames - offset == nl and 0 < fa <= fb <= n_frames:
+            drop, drop_sig = (fa, fb, nl), sig
+            flag("WARN", f"video lost {nl} frames between video frames {fa} and {fb} ({DROPS_FILE}): frame k = pulse k "
+                         f"before frame {fa}, frame k = pulse k+{nl} from frame {fb} on; video frames {fa}-{fb - 1} and "
+                         f"pulses {fa + offset}-{fb + nl + offset - 1} are not matched (the loss is somewhere there)")
+        else:
+            flag("WARN", f"the {DROPS_FILE} row does not fit this session (video {n_frames} frames, pulses {len(cam)}, "
+                         f"offset {offset}, frames_lost {nl}) - ignored")
 
     def pulse_of(t):
         if t is None or np.isnan(t):
@@ -524,14 +562,20 @@ def process_session(s: dict, out_dir: Path, ffmpeg, offsets: dict) -> dict:
             return None
         return k
 
-    def frame_of(t):
-        k = pulse_of(t)
-        if k is None:
-            return None
+    def frame_of_pulse(k):
         f = k - offset
+        if drop:
+            if f >= drop[1] + drop[2]:
+                f -= drop[2]
+            elif f >= drop[0]:
+                return None
         if f < 0 or (have_video and f >= n_frames):
             return None
         return f
+
+    def frame_of(t):
+        k = pulse_of(t)
+        return None if k is None else frame_of_pulse(k)
 
     def in_valve(on, off):
         for v_on, v_off in valve_iv:
@@ -612,9 +656,8 @@ def process_session(s: dict, out_dir: Path, ffmpeg, offsets: dict) -> dict:
         w = csv.writer(f)
         w.writerow(["pulse", "frame", "t_saleae_s", "t_from_first_pulse_s", "interval_ms", "pulse_high_ms"])
         for k, (on, off) in enumerate(cam_iv):
-            fr = k - offset
-            fr_ok = fr >= 0 and (not have_video or fr < n_frames)
-            w.writerow([k, fmt(fr if fr_ok else None), fmt(on), fmt(on - t0),
+            fr = frame_of_pulse(k)
+            w.writerow([k, fmt(fr), fmt(on), fmt(on - t0),
                         fmt((on - cam_iv[k - 1][0]) * 1000 if k else None, 3),
                         fmt((off - on) * 1000 if not np.isnan(off) else None, 3)])
 
@@ -624,7 +667,7 @@ def process_session(s: dict, out_dir: Path, ffmpeg, offsets: dict) -> dict:
             "camera_hz": round(1 / np.mean(np.diff(cam)), 3) if len(cam) > 1 else None,
             "licks_saleae": len(lick_in), "licks_python": len(py_lick_ev), "licks_matched": len(lmatch),
             "rewards_saleae": len(valve_in), "rewards_python": len(py_rew_ev), "rewards_matched": len(rmatch),
-            "duration_s": round(float(cam[-1] - cam[0]), 1), "problems": " | ".join(warn)}
+            "duration_s": round(float(cam[-1] - cam[0]), 1), "problems": " | ".join(warn), "video_drop": drop_sig}
 
 
 def write_report(out_dir: Path, s: dict, status: str, warn: list, info: list):
@@ -802,7 +845,7 @@ def up_to_date(s, out_dir: Path) -> bool:
 # ----------------------------------------------------------------------------- main
 SUMMARY_COLS = ["day", "session", "status", "video_frames", "camera_pulses", "video_offset", "camera_hz",
                 "licks_saleae", "licks_python", "licks_matched", "rewards_saleae", "rewards_python",
-                "rewards_matched", "duration_s", "problems"]
+                "rewards_matched", "duration_s", "problems", "video_drop"]
 
 
 def main(argv=None):
@@ -835,6 +878,7 @@ def main(argv=None):
             except Exception as exc:
                 print(f"  (could not read old {summary_path.name}: {exc} - it will be rebuilt)")
         offsets = read_offsets(batch["out"])
+        drops = read_drops(batch["out"])
         results = {}
         for s in sessions_in(batch, args.root):
             label = f"{s['day'] + '/' if s['day'] else ''}{s['name']}"
@@ -848,12 +892,13 @@ def main(argv=None):
                 print(f"  {label:45s} SKIPPED - {why}")
                 continue
             if not args.force and key in old and up_to_date(s, out_dir) and \
-                    not (key in offsets and str(offsets[key]) != str(old[key].get("video_offset"))):
+                    not (key in offsets and str(offsets[key]) != str(old[key].get("video_offset"))) and \
+                    (drops.get(key, (0, 0, 0, ""))[3] == str(old[key].get("video_drop") or "")):
                 results[key] = old[key]
                 print(f"  {label:45s} already done ({old[key].get('status')})")
                 continue
             try:
-                r = process_session(s, out_dir, ffmpeg, offsets)
+                r = process_session(s, out_dir, ffmpeg, offsets, drops)
             except Exception as exc:
                 r = {"day": s["day"], "session": s["name"], "status": "FAIL", "problems": f"error: {exc}"}
                 for suffix in ("_events.csv", "_frames.csv"):

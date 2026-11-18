@@ -41,7 +41,14 @@ def main(argv=None):
     ap.add_argument("--root", required=True); ap.add_argument("--day", type=int, required=True)
     ap.add_argument("--pupil-root"); ap.add_argument("--out")
     a = ap.parse_args(argv)
-    root = Path(a.root); pupil_root = Path(a.pupil_root) if a.pupil_root else root / "pupil_tst_final"
+    root = Path(a.root)
+    if a.pupil_root:
+        pupil_root = Path(a.pupil_root)
+    else:   # 2026-11-17: the tree the tables use (concat_choice.active_pupil_root: pupil_active_root.txt)
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import concat_choice as CC
+        pupil_root = CC.active_pupil_root(root)
     out = Path(a.out) if a.out else root / "analysis" / "days" / f"day{a.day}" / "figs" / "01_pupil_roi_check.png"
     vids = sorted((root / "video" / f"day{a.day}").glob("*/*/*.mp4")) + sorted((root / "video" / f"day{a.day}").glob("*/*/*.avi"))
     if not vids:

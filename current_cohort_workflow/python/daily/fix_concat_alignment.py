@@ -37,7 +37,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import concat_choice as CC  # noqa: E402
 SUFFIX = "_syncaligned"
-DERIVED = ("_syncaligned", "_fullpupil")   # folders made by this tool / by fullpupil_sessions.py
+DERIVED = CC.DERIVED   # folders made by this tool and the other option tools (_fullpupil, _besteffort, _behavioronly)
 TMP_PREFIX = "_syncaligned_tmp_"
 MATLAB_TIMEOUT_S = 1800
 PUPIL_COLS = ["Frame", "PupilTimestamp_s", "Diameter_px", "CenterX_px", "CenterY_px", "UsedScoreFallback",
@@ -199,7 +199,7 @@ def main(argv=None):
     ap.add_argument("--days", type=int, nargs="*", default=[])
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args(argv)
-    root = a.pupil_root or a.project / "pupil_tst_final"
+    root = a.pupil_root or CC.active_pupil_root(a.project)   # 2026-11-17: the tree the tables use
     sync_root = a.sync_root or a.project / "sync"
     reg = root / "alignment_fixes.csv"
     if not reg.exists():

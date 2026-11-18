@@ -133,8 +133,11 @@ def load_session(ev_path: Path, sync_root: Path, summary: pd.DataFrame) -> dict:
     ev["req"] = pd.to_numeric(ev["req"], errors="coerce")
     trials = ev[(ev["event"] == "trial_start")][["trial", "t", "req"]].rename(columns={"t": "t_start"})
     reqs = trials["req"].dropna().unique()
-    is_pr = len(reqs) > 1 or task.startswith("PR")
-    if not task and len(reqs) == 1:
+    replay = len(trials) > 0 and trials["req"].isna().all()   # a passive replay log has no 'req' at all
+    is_pr = (len(reqs) > 1 or task.startswith("PR")) and not replay
+    if replay:
+        task = "PASSIVE"
+    elif not task and len(reqs) == 1:
         task = f"FR{reqs[0]:g}"
     elif not task and is_pr:
         task = "PR"
@@ -173,6 +176,8 @@ def metrics(S: dict, t_max: float) -> dict:
     tr = S["trials"].merge(rew[["trial", "t"]].rename(columns={"t": "t_reward"}), on="trial", how="inner")
     tr = tr[tr["t_start"] < t_max]
     ttr = (tr["t_reward"] - tr["t_start"]).to_numpy()
+    if S["task"] == "PASSIVE":          # a replay: its trials and rewards are the active partner's, not this mouse's
+        ttr = ttr[:0]
     m["time_to_reward_median_s"] = float(np.median(ttr)) if len(ttr) else np.nan
     m["time_to_reward_iqr_s"] = float(np.subtract(*np.quantile(ttr, [0.75, 0.25]))) if len(ttr) else np.nan
     m.update(pr_scores(S, t_max))
@@ -423,6 +428,25 @@ def find_pupil(pupil_root: Path, day_folder: str, session: str):
         return sorted(hits)[0]
     d = pupil_root / day_folder
     if d.is_dir():
+        # whole eye (2026-11-17): a mouse with eye damage approved in wholeeye_mice.csv / wholeeye_sessions.csv - the
+        # whole-eye trace (equivalent diameter of the eye opening; wholeeye_clean.py) instead of a pupil
+        try:
+            import concat_choice as CC
+            we = CC.wholeeye_pupil_csv(d, pupil_root)
+        except Exception:   # noqa: BLE001
+            we = None
+        if we is not None:
+            return we
+        # best-effort pupil of a hard eye (grade best_effort; the user approved the session in besteffort_sessions.csv,
+        # 2026-11-16): pupil_besteffort.py's trace instead of the package's
+        if pupil_grade(pupil_root, day_folder)[0] == "best_effort":
+            try:
+                import concat_choice as CC
+                be = CC.besteffort_pupil_csv(d, pupil_root)
+            except Exception:   # noqa: BLE001
+                be = None
+            if be is not None:
+                return be
         # fully dilated pupil (grade full_pupil, a session the user approved in fullpupil_sessions.csv; 2026-11-15):
         # the pupil is the whole dark area inside the lids, measured by pupil_fullpupil_session.m
         # (an approved session: the whole session; the mouse option: the minute-by-minute switch, concat_choice.py)
@@ -630,8 +654,12 @@ def main(argv=None):
     args = ap.parse_args(argv)
     projects = []
     if (args.root / "sync" / "sync_summary.csv").exists():        # project layout
-        # pupil: the user's pupil/TST package output (pupil_tst_final) when it exists, else the older pupil folder
-        proot = args.root / "pupil_tst_final" if (args.root / "pupil_tst_final").is_dir() else args.root / "pupil"
+        # pupil: the pupil/TST package tree the tables use (concat_choice.active_pupil_root: pupil_active_root.txt,
+        # since 2026-11-17 pupil_tst_teach; else pupil_tst_final) when it exists, else the older pupil folder
+        import concat_choice as CC
+        proot = CC.active_pupil_root(args.root)
+        if not proot.is_dir():
+            proot = args.root / "pupil"
         projects.append((args.root.name, args.root / "sync", args.root / "analysis", proot, True))
     for sync_root in sorted(args.root.glob("*_sync")):             # older <batch>_sync layout
         prefix = sync_root.name[: -len("_sync")]
@@ -948,7 +976,9 @@ def write_day_summary(path: Path, d, Md: pd.DataFrame, SSd, pupil_notes: dict):
     for sex, g in m.groupby("sex"):
         if sex:
             lines.append(f"  {sex}: licks/min {g['licks_per_min'].mean():.1f}, rewards {g['rewards'].mean():.1f} (n={len(g)})")
-    long = [mo for mo in m["mouse"] if mo in full.index and full.loc[mo, "duration_min"] > 15.5]
+    # .loc[[mo]] keeps working when one mouse has two sessions on the same day (duplicate index)
+    long = list(dict.fromkeys(mo for mo in m["mouse"]
+                              if mo in full.index and full.loc[[mo], "duration_min"].max() > 15.5))
     if long:
         lines += ["", "Sessions longer than 15:10 (full-session numbers are in day*_metrics.csv): " + ", ".join(long)]
     notes = [f"  {S['mouse']}: {pupil_notes[S['session']]}" for S in SSd if S["session"] in pupil_notes]
@@ -972,7 +1002,10 @@ def write_session_log(root: Path, sync_root: Path, summary: pd.DataFrame, M: pd.
         return
     full = M[M["window"] == "full_session"].set_index("session")
     first = M[M["window"] == "first_15m10s"].set_index("session")
-    pupil_root = root / "pupil_tst_final" if (root / "pupil_tst_final").is_dir() else root / "pupil"
+    import concat_choice as CC
+    pupil_root = CC.active_pupil_root(root)
+    if not pupil_root.is_dir():
+        pupil_root = root / "pupil"
     rows = []
     for s in found:
         name, day = s["name"], s["day"]

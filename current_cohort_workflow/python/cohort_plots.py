@@ -438,9 +438,18 @@ def main(argv=None):
     ap.add_argument("--bout-gaps", type=float, nargs="+", default=[1.0, 2.0])
     ap.add_argument("--exclusions", nargs="+", default=["4,6,11,14,17", "4,6,11,14"],
                     help="transition-day sets left out of the phase medians (comma-separated days)")
+    ap.add_argument("--no-pupil-mice", nargs="*", default=[],
+                    help="mouse_keys (e.g. 9669_black) whose Diameter_px is NOT a pupil (whole eye of a damaged eye, "
+                         "added 2026-11-17): left out of the pupil figures PU01/PU03/PU04/PU06")
     a = ap.parse_args(argv)
     a.out.mkdir(parents=True, exist_ok=True)
     S = read_sessions(a.longitudinal)
+    if a.no_pupil_mice:
+        drop = set(a.no_pupil_mice)
+        for k, s in S.items():
+            if k[1] in drop:
+                s["pupil"] = np.full_like(s["pupil"], np.nan)
+        print(f"pupil figures leave out {', '.join(sorted(drop))} (their diameter is the whole eye, not the pupil)")
     man = pd.read_csv(a.manifest) if a.manifest else None
     for gap in a.bout_gaps:
         BOUT_GAP_S = gap

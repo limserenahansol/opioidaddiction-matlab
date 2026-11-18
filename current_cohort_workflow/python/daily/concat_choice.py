@@ -4,6 +4,16 @@ A session folder <pupil_root>/dayN/<cage>/<mouse>/ can hold:
   concat_out_<stamp>                  the pupil/TST package's table (pupil_align_ttl, original code)
   concat_out_<stamp>_syncaligned      fix_concat_alignment.py: frame<->pulse match from sync_sessions.py
   concat_out_<stamp>_fullpupil        fullpupil_sessions.py: pupil columns = the full pupil (whole dark area)
+                                      (withdrawn by the user on 2026-11-16; kept for the record, not approved)
+  concat_out_<stamp>_besteffort       besteffort_sessions.py: pupil columns = the best-effort trace of a hard eye
+  concat_out_<stamp>_behavioronly     behavioronly_sessions.py: a session WITHOUT video; rows = Saleae camera pulses,
+                                      lick / valve columns from the original alignment code, pupil columns empty
+  concat_out_<stamp>_wholeeye         wholeeye_sessions.py: a mouse with eye damage (2026-11-17): pupil columns = the
+                                      whole eye between the lids (equivalent diameter of the eye opening); approved per
+                                      mouse in wholeeye_mice.csv (every session of the mouse) or per session in
+                                      wholeeye_sessions.csv (an explicit 'no' row there wins)
+Which pupil tree the tables use: active_pupil_root() - the first line of <project>/pupil_active_root.txt (2026-11-17:
+pupil_tst_teach, the package re-run with the model retrained on the user's drawings), else pupil_tst_final.
 Corrected copies are OPTIONS for rare sessions (the user, 2026-11-15). A copy is used only while
   * it passed its tool's checks (fix_source.json present, combined_pupil_digital.csv present), and
   * its session is approved NOW in its list (alignment_fixes.csv for _syncaligned, fullpupil_sessions.csv for
@@ -18,14 +28,40 @@ import re
 from pathlib import Path
 
 SYNC, FULL = "_syncaligned", "_fullpupil"
-DERIVED = (SYNC, FULL)
-LISTS = {SYNC: "alignment_fixes.csv", FULL: "fullpupil_sessions.csv"}
+# 2026-11-16: best-effort pupil for hard eyes (pupil_besteffort.py + besteffort_sessions.py), user approved
+BEST = "_besteffort"
+# 2026-11-16: a session WITHOUT video (behavior only, pupil columns empty; behavioronly_sessions.py), user approved
+NOVID = "_behavioronly"
+# 2026-11-17: the whole eye of a mouse with eye damage (9670f black, 9669m black; wholeeye_sessions.py), user approved
+WHOLE = "_wholeeye"
+DERIVED = (SYNC, FULL, BEST, NOVID, WHOLE)
+LISTS = {SYNC: "alignment_fixes.csv", FULL: "fullpupil_sessions.csv", BEST: "besteffort_sessions.csv",
+         NOVID: "behavioronly_sessions.csv", WHOLE: "wholeeye_sessions.csv"}
+WHOLE_MICE = "wholeeye_mice.csv"            # cage,mouse,approved,reason: every session of an approved mouse
+WHOLE_DIR, WHOLE_CSV = "pupil_outputs_wholeeye", "wholeeye_CLEAN.csv"
+ACTIVE_FILE = "pupil_active_root.txt"       # <project>/pupil_active_root.txt: the pupil tree the tables use
 # sessions approved automatically by a mouse-level option (fullpupil_mice.csv; fullpupil_sessions.py writes this file):
 # they count like rows of fullpupil_sessions.csv unless that list has a row for the session that is NOT approved
 AUTO_FULL = "fullpupil_auto.csv"
 # a mouse-option session uses a minute-by-minute switch between the full pupil and the package's pupil
 SWITCH_CSV, SWITCH_JSON = "pupil_switch_CLEAN.csv", "fullpupil_switch.json"
 _STAMP = re.compile(r"concat_out_(\d{8}_\d{6})")
+
+
+def active_pupil_root(project) -> Path:
+    """the pupil tree the tables use: <project>/<first non-comment line of pupil_active_root.txt> when that folder
+    exists, else <project>/pupil_tst_final (the original package's tree). Never raises."""
+    project = Path(project)
+    try:
+        for ln in (project / ACTIVE_FILE).read_text(encoding="utf-8-sig").splitlines():
+            ln = ln.strip()
+            if ln and not ln.startswith("#"):
+                if (project / ln).is_dir():
+                    return project / ln
+                break
+    except OSError:
+        pass
+    return project / "pupil_tst_final"
 
 
 def is_approved(v) -> bool:
@@ -67,6 +103,19 @@ def approved_sessions(pupil_root: Path, list_name: str, warn=print) -> set:
         denied = _keys(rows, lambda r: str(r.get("approved", "")).strip() != "" and not is_approved(r.get("approved")))
         auto = _keys(read_rows(Path(pupil_root) / AUTO_FULL, warn), lambda r: is_approved(r.get("approved")))
         out |= auto - denied
+    if list_name == LISTS[WHOLE]:
+        # mouse-level approval (wholeeye_mice.csv): every session folder of the mouse in this tree, except sessions
+        # with a row in wholeeye_sessions.csv that is not approved (an explicit 'no' wins)
+        denied = _keys(rows, lambda r: str(r.get("approved", "")).strip() != "" and not is_approved(r.get("approved")))
+        mice = {(str(r["cage"]).strip().lower(), str(r["mouse"]).strip().lower())
+                for r in read_rows(Path(pupil_root) / WHOLE_MICE, warn, need=("cage", "mouse"))
+                if is_approved(r.get("approved"))}
+        if mice:
+            for sd in Path(pupil_root).glob("day*/*/*"):
+                k = session_key(sd) if sd.is_dir() else None
+                if k and (k[1], k[2]) in mice:
+                    out.add(k)
+        out -= denied
     return out
 
 
@@ -91,7 +140,8 @@ def session_key(session_dir: Path):
 
 def _rank(p: Path):
     m = _STAMP.match(p.name)
-    suf = 2 if p.name.endswith(FULL) else 1 if p.name.endswith(SYNC) else 0
+    suf = 4 if p.name.endswith(NOVID) else 3 if p.name.endswith((BEST, WHOLE)) else 2 if p.name.endswith(FULL) else \
+        1 if p.name.endswith(SYNC) else 0
     return (m.group(1) if m else p.name, suf, p.name)
 
 
@@ -119,7 +169,8 @@ def usable_runs(session_dir: Path, pupil_root: Path, approvals=None):
             continue
         if not (p / "fix_source.json").exists() or key not in approvals.get(suf, set()):
             continue
-        if suf == FULL and str(_source(p).get("base_run", "")).endswith(SYNC) and key not in approvals.get(SYNC, set()):
+        if suf in (FULL, BEST, WHOLE) and str(_source(p).get("base_run", "")).endswith(SYNC) and \
+                key not in approvals.get(SYNC, set()):
             continue          # built on a sync-aligned table whose approval was withdrawn
         out.append(p)
     return out
@@ -187,6 +238,27 @@ def fullpupil_pupil_csv(session_dir: Path, pupil_root: Path):
     if key in auto_full_sessions(pupil_root):
         return od / SWITCH_CSV if fullpupil_switch_valid(sd) else None
     return None
+
+
+def besteffort_pupil_csv(session_dir: Path, pupil_root: Path):
+    """the best-effort pupil CSV (package CLEAN columns) of a session approved in besteffort_sessions.csv, else None"""
+    sd = Path(session_dir)
+    key = session_key(sd)
+    if key is None or key not in approved_sessions(pupil_root, LISTS[BEST], warn=None):
+        return None
+    p = sd / "pupil_outputs_besteffort" / "besteffort_CLEAN.csv"
+    return p if p.exists() else None
+
+
+def wholeeye_pupil_csv(session_dir: Path, pupil_root: Path):
+    """the whole-eye CSV (package CLEAN columns; wholeeye_clean.py) of a session approved for the whole eye
+    (wholeeye_mice.csv / wholeeye_sessions.csv), else None"""
+    sd = Path(session_dir)
+    key = session_key(sd)
+    if key is None or key not in approved_sessions(pupil_root, LISTS[WHOLE], warn=None):
+        return None
+    p = sd / WHOLE_DIR / WHOLE_CSV
+    return p if p.exists() else None
 
 
 def session_dir(pupil_root: Path, day: int, cage: str, mouse: str):

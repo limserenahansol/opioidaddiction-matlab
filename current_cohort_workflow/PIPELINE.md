@@ -85,7 +85,33 @@ flowchart TB
    - An older copy, replaced by a checked `_syncaligned` copy or by a redo, is moved to `step02_base\_superseded_<date>\`. That folder is outside the `dayN` folders, so Step 02 does not count it as a second session. Each move is also recorded in `step02_base_moves.csv`.
    - `daily_summary.py --longitudinal` also rebuilds `ALL_mice_longitudinal.csv` with the original Step 02 and makes the cohort figures, so the data are ready for post-hoc analysis at any time.
 
-Session names (task-log `output=`) must be `<cage><mouse>_<task>day<N>`, e.g. `9670fgreen1_pr1day3`. The name sets `dayN\<cage>\<mouse>`.
+Session names (task-log `output=`) must be `<cage><mouse>_<task>day<N>`, e.g. `9670fgreen1_pr1day3`; a passive (replay) session on days 6–10 is `<cage><mouse>_passiveday<N>`. The name sets `dayN\<cage>\<mouse>`.
+
+### Checks after each session and every evening (report only, added 2026-11-15)
+
+Expected values per day are in `python/daily/protocol_expected.csv` (paradigm, requirement start and step, valve open time, lockout, session length, pump, Saleae glitch filters). An empty cell means no expectation: the value is reported, never flagged. Days 6–10 have two rows, active PR and passive replay (`LogReplayExperiment`, morphine through the valve as in the previous cohort); each session is checked against the row of its task-log paradigm.
+
+- **`session_check.py` (`SESSION_CHECK.bat`), right after each session.** Read-only. It finds the newest session with the same pairing as `daily_summary.py` and prints PASS / CHECK with numbers for:
+  - the file name: cage, mouse and day number, and the same mouse used twice on one date;
+  - the protocol in the task log, including the measured lockout (`reward_cmd` to the next `trial_start`);
+  - the valve open time and the reward count on the Saleae;
+  - Python-only licks that the task counted;
+  - camera frames vs pulses, and whether the video was stopped after the task ended;
+  - the Saleae settings.
+
+  On a passive (replay) log it also checks the log that was replayed (`replay_source`): found, another mouse, started on the same date and finished before the passive session, not a replay itself; the pair in `cohort_manifest.csv` when `group` / `pair_id` are filled; and the replayed rewards (same count, times within 0.5 s of the source's; 60 complete replays of the previous cohorts lagged 0.02–0.24 s).
+
+  Run on a `test_...` log, it checks only the valve time and the Saleae settings, for the test before the first mouse. Outputs go to `analysis\session_checks\`. `daily_summary.py` also runs it with `--all` for the day.
+- **`pr_daily_checks.py`, every evening after `quick_analysis.py`.** It writes one row per mouse to `analysis\days\dayN\pr_checks_dayN.txt/.csv` and `figs\12_pr_checks.png`:
+  - valve open time vs the expected value and between mice;
+  - measured vs logged lockout;
+  - Python-only licks that counted toward a ratio;
+  - session length, last reward and final gap;
+  - PR for the whole session and in the first 910 s, next to the previous cohort's days 3–5 (reference only).
+
+  The previous-cohort reference is cached in `analysis\reference\prev_cohort_pr_days3to5.csv`. A passive session has no PR columns; its reward count is compared with the replayed log's.
+- The PR block for the task script (`TimedProgressiveRatioExperiment`, start 1 +1, lockout 0.2 s, valve only, 910-s auto-stop, `n_trials` 1000000) is pasted in by hand. `n_trials` 10000000000 makes the start-up hang: the task builds the whole requirement list before the first trial.
+- Days 6–10: the same block with a replay switch. With a source log set, it runs `LogReplayExperiment` on the active partner's log of the same day: the valve opens at the partner's reward times, and the session lasts as long as the partner's. Before anything starts it stops if the source is missing, is itself a replay, has no `experiment_end`, or is from another date. A switch lets the last two through for a deliberate catch-up day. Quick analysis labels these sessions `PASSIVE` and gives them no PR or time-to-reward values. Step 02 marks them passive from the paradigm, as it did for `MicroLogReplayExperiment`.
 
 ## 2. Assay days (schedule: TI days 5–18, HP 5/10/13/16/18, TST 5/10/13/18)
 
@@ -147,9 +173,9 @@ Session names (task-log `output=`) must be `<cage><mouse>_<task>day<N>`, e.g. `9
 
 | | Previous cohort (Dec 2025) | Current cohort |
 |---|---|---|
-| Days 1–2 | MicroFR FR1 / FR3, pump 0.1 s, valve 100 ms, lockout 0.7 s | FR3 / FR5, pump 0.5 s, valve 200→500 ms, lockout 0.7 s |
-| PR days | valve 180 ms, lockout 0.2 s, `post_reward_delay` 0 | valve 200 ms (from day 3), lockout 0.2 s, delay 0 |
-| Saleae | 10 MHz, 1.2 V, 1 µs glitch filter on Ch4/6/7 | 125 MHz, glitch filter on the camera channel only |
-| Camera | DV .avi 720x540 | IC Capture .mp4 1920x1080, ~30.5 Hz triggered |
+| Days 1–2 | MicroFR FR1 / FR3, pump 0.1 s, valve 100 ms (Saleae 99.7 ms), `post_reward_delay` 0.5 | FR3 / FR5, pump 0.5 s, `post_reward_delay` 0.5. Valve 200 ms in 5 day-1 sessions, then 500 ms after the 2026-11-12 15:32 firmware upload. Measured lockout 1.0 s (the log's meta says 0.7) |
+| PR days | valve 180 ms (Saleae 179.8 ms; the saved firmware copies say 200), lockout 0.2 s, `post_reward_delay` 0, sessions stopped by hand at 13–17 min | valve 200 ms (user decision 2026-11-15; check the Saleae width), lockout 0.2 s, delay 0, auto-stop at 910 s (`TimedProgressiveRatioExperiment`) |
+| Saleae | 10 MHz, 1.2 V, 1 µs glitch filter on Ch4/6/7 | 125 MHz; days 1–2 had a glitch filter on the camera channel only (1 µs on Ch4/6/7 expected from day 3) |
+| Camera | DV .avi 720x540 | IC Capture .mp4 1920x1080, 30.26 Hz triggered on the falling edge (the mp4 header says 60 fps) |
 
 Days 1–2 are training and are not analysed.
