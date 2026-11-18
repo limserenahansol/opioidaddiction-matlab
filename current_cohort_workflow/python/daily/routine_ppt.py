@@ -7,6 +7,7 @@ complicated analysis waits until after day 18). Report only: reads what the rout
   3  data problems found and what was done                 4  routine problems fixed (rig, files, software)
   5  where to find all plots                                6-10  basic plots (previous-cohort figures + daily figures)
   11 what to do better next
+  (+ after slide 2, on assay days: TI / TST / HOT of the day from analysis\\days\\dayN\\assays_dayN.csv; added 2026-11-18)
 
 Sources (inside the project): analysis\\days\\qc_summary_days*.csv and qc_issues_days*.csv (tools\\qc_summary.py),
 analysis\\days\\routine_log.csv and next_steps.csv (kept by Claude), analysis\\days\\dayN\\pr_checks_dayN.csv,
@@ -195,6 +196,62 @@ def count_files(folder: Path, pattern="*.png"):
 
 
 # ---------------------------------------------------------------- slides
+def assays_slide(prs, blank, N, foot):
+    """Assays of day N (added 2026-11-18, TST/HP days 5, 10, 13, 16, 18; tail immersion every day from day 5):
+    analysis\\days\\dayN\\assays_dayN.csv from assays_day.py. Green = present (TST: the tracked blob is the mouse),
+    yellow = TST scored after the camera-view fix, red = missing."""
+    f = DAYS_DIR / f"day{N}" / f"assays_day{N}.csv"
+    if not f.exists():
+        return False
+    A = pd.read_csv(f, dtype={"cage": str})
+    s = prs.slides.add_slide(blank)
+    MS.add_title(s, f"Assays day {N}: tail immersion · TST · hot plate",
+                 "TI = the latency you sent (s) · TST = automatic, first 3 min, with a per-frame mouse check · "
+                 "HOT = your hand score, first 30 s")
+    hot_cols = [c for c in A.columns if c.startswith("hot_pct_")]
+    names = [c.replace("hot_pct_", "").replace("_", " ") for c in hot_cols]
+    header = ["Mouse", "TI (s)", "TST non-moving", "TST check"] + [f"HOT {n}" for n in names]
+    rest = 12.33 - 1.45 - 0.8 - 1.2 - 2.1
+    widths = [1.45, 0.8, 1.2, 2.1] + [rest / max(1, len(hot_cols))] * len(hot_cols)
+
+    def cell(txt, ok=True, warn=False):
+        st = "red" if not ok else ("yellow" if warn else "green")
+        return (txt, QC_FILL[st], QC_TEXT[st], False)
+
+    def num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return float("nan")
+
+    rows = []
+    for c, m in MICE:
+        g = A[(A.cage == c) & (A.mouse == m)]
+        r = g.iloc[0].to_dict() if len(g) else {}
+        ti, tst, nm = num(r.get("tail_immersion_s")), num(r.get("tst_pct_nonmoving")), num(r.get("tst_not_mouse_pct"))
+        run, src = str(r.get("tst_run", "")), str(r.get("tst_source", ""))
+        fix = run == "viewfix"
+        chk = ("hand score" if src == "hand" else
+               f"{'camera-view fix' if fix else 'untouched'}; not mouse {nm:g} %" if nm == nm else run)
+        row = [(f"{c} {m}", "FFFFFF", TEXT, True), cell(f"{ti:.2f}" if ti == ti else "missing", ti == ti),
+               cell(f"{tst:.1f} %" if tst == tst else "missing", tst == tst, fix),
+               cell(chk if tst == tst else "-", tst == tst, fix)]
+        hot_ok = str(r.get("hot_file", "")) not in ("", "nan")
+        for hc in hot_cols:
+            v = num(r.get(hc))
+            row.append(cell(f"{v:.1f} %" if hot_ok and v == v else ("missing" if not hot_ok else "-"), hot_ok))
+        rows.append(row)
+    table(s, 0.5, 1.45, widths, header, rows, "Assays table", size=10, head_size=10)
+    MS.add_text(s, 0.5, 6.2, 12.3, 0.75,
+                f"The original Step 02 reads them from assays\\day{N}\\<cage>\\<mouse>\\ (TI: *_immersion_day{N}.csv, "
+                f"cell B1 · TST: ManualScoringResults_*_TST_day{N}_AUTO.mat · HOT: ManualScoringResults_*_HOT_day{N}_"
+                f"first30s.mat) · TST examples: analysis\\tst\\day{N}\\examples\\ · table: analysis\\days\\day{N}\\"
+                f"assays_day{N}.csv · yellow = the camera moved during that TST video; the moved frames were aligned "
+                "before scoring", size=10, color=MUTED, name="Assays note")
+    MS.add_footer(s, foot)
+    return True
+
+
 def build(days, out: Path):
     tag = f"days{days[0]}-{days[-1]}" if len(days) > 1 else f"day{days[0]}"
     qf, iff = DAYS_DIR / f"qc_summary_{tag}.csv", DAYS_DIR / f"qc_issues_{tag}.csv"
@@ -271,8 +328,11 @@ def build(days, out: Path):
         if r.what.startswith("Before day"):
             dec.append([("Soon: ", {"bold": True}), (r.what, {})])
     box(s, 6.75, 2.8, 6.08, 3.0, "Needs your decision", dec or ["Nothing open."], "B42318", "Decision box", size=11)
-    MS.add_text(s, 0.5, 6.0, 12.3, 0.4, "Slides: 2 QC per session · 3 data problems and fixes · 4 routine problems fixed · "
-                "5 where all plots are · 6–11 basic plots · 12 what to do better next", size=12, color=MUTED,
+    has_assays = (DAYS_DIR / f"day{N}" / f"assays_day{N}.csv").exists()
+    kA = 1 if has_assays else 0
+    MS.add_text(s, 0.5, 6.0, 12.3, 0.4, "Slides: 2 QC per session · " + ("3 assays (TI, TST, HOT) · " if has_assays else "")
+                + f"{3 + kA} data problems and fixes · {4 + kA} routine problems fixed · {5 + kA} where all plots are · "
+                f"{6 + kA}–{11 + kA} basic plots · {12 + kA} what to do better next", size=12, color=MUTED,
                 name="Contents")
     MS.add_footer(s, foot)
 
@@ -315,9 +375,13 @@ def build(days, out: Path):
                           QC_FILL[st], size=big_pt, align=PP_ALIGN.CENTER)
     MS.add_text(s, 0.5, 6.55, 12.3, 0.45,
                 "R = rewards (Python = Saleae in every session) · PR = last ratio requirement (= rewards + 1 in a full "
-                "910-s session, the previous cohort's PR) · flags are explained on slide 3 · the full picture with every "
-                f"note: analysis\\days\\qc_summary_{tag}.png", size=10, color=MUTED, name="QC note")
+                f"910-s session, the previous cohort's PR) · flags are explained on slide {3 + kA} · the full picture with "
+                f"every note: analysis\\days\\qc_summary_{tag}.png", size=10, color=MUTED, name="QC note")
     MS.add_footer(s, foot)
+
+    # ---- 2b assays of the day (TI, TST, HOT), when there are any
+    if has_assays:
+        assays_slide(prs, blank, N, foot)
 
     # ---- 3 data problems and what was done
     s = prs.slides.add_slide(blank)
