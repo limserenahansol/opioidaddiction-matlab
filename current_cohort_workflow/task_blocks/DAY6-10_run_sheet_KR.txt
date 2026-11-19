@@ -1,4 +1,4 @@
-6-10일 실행표 (패시브 시작: 6일 = 2026-11-19)          만든 날 2026-11-18 (Claude)
+6-10일 실행표 (패시브 시작: 6일 = 2026-11-19)          만든 날 2026-11-18 (Claude), 고친 날 2026-11-19 (9669m 짝, 이름 규칙)
 ===========================================================================================
 
 [0] 첫 마우스 전에, 한 번만
@@ -24,11 +24,15 @@
    3    9670f white    Active   ""                               "9670fwhite_prday6.jsonl"
    4    9670f black    Passive  "9670fwhite_prday6.jsonl"        "9670fblack_passiveday6.jsonl"
    5    9669m green2   Active   ""                               "9669mgreen2_prday6.jsonl"
-   6    9669m white    Passive  "9669mgreen2_prday6.jsonl"       "9669mwhite_passiveday6.jsonl"
+   6    9669m green1   Passive  "9669mgreen2_prday6.jsonl"       "9669mgreen1_passiveday6.jsonl"
    7    9669m black    Active   ""                               "9669mblack_prday6.jsonl"
-   8    9669m green1   Passive  "9669mblack_prday6.jsonl"        "9669mgreen1_passiveday6.jsonl"
+   8    9669m white    Passive  "9669mblack_prday6.jsonl"        "9669mwhite_passiveday6.jsonl"
 
-  짝 (cohort_manifest.csv): 9670f green2->green1, 9670f white->black, 9669m green2->white, 9669m black->green1
+  짝 (cohort_manifest.csv): 9670f green2->green1, 9670f white->black, 9669m green2->green1, 9669m black->white
+  ※ 9669m 짝은 2026-11-19 (6일) 에 바뀌었습니다: green1 이 green2 의 로그를 재생한 것을 새 짝으로 씁니다
+    (사용자: "I will do in this new pair"). 6-10일 내내 이 짝입니다. 예전 짝: green2->white, black->green1.
+  ※ 이름 (2026-11-19 부터): 케이지, 쥐 색깔, day 번호가 이름 어디에 있어도 됩니다 (예: 9669mwhitepassive_prday6).
+    Passive 는 이름 어딘가에 "passive" 를 넣어 주세요 (블록이 확인합니다).
   7-10일: 이름의 6만 그날 숫자로 (prday7, passiveday7 ...).
 
   - 순서는 바꿔도 됩니다. 단 Passive 는 짝 Active 가 끝난 뒤에만 - 아니면 블록이 시작하지 않습니다.
