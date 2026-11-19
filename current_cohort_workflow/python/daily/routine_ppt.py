@@ -44,6 +44,7 @@ P = TOOLS.parent
 DAYS_DIR = P / "analysis" / "days"
 NAVY, TEXT, MUTED, LINE = MS.NAVY, MS.TEXT, MS.MUTED, MS.LINE
 MICE = QS.MICE
+TST_HP_DAYS = {5, 10, 13, 16, 18}  # TST + hot plate days (tail immersion every day from day 5); see assays_day.py
 QC_FILL = {"green": "E6F4EA", "yellow": "FFF6DB", "red": "FDE2E1"}
 QC_TEXT = {"green": "1E6B34", "yellow": "7A5A00", "red": "B42318"}
 STATUS = {  # fill, text colour, label
@@ -216,7 +217,8 @@ def assays_slide(prs, blank, N, foot):
     s = prs.slides.add_slide(blank)
     MS.add_title(s, f"Assays day {N}: tail immersion · TST · hot plate",
                  "TI = the latency you sent (s) · TST = automatic, first 3 min, with a per-frame mouse check · "
-                 "HOT = your hand score, first 30 s")
+                 "HOT = your hand score, first 30 s" +
+                 ("" if N in TST_HP_DAYS else " · TST and hot plate only on days 5, 10, 13, 16, 18"))
     hot_cols = [c for c in A.columns if c.startswith("hot_pct_")]
     names = [c.replace("hot_pct_", "").replace("_", " ") for c in hot_cols]
     header = ["Mouse", "TI (s)", "TST non-moving", "TST check"] + [f"HOT {n}" for n in names]
@@ -233,6 +235,8 @@ def assays_slide(prs, blank, N, foot):
         except (TypeError, ValueError):
             return float("nan")
 
+    # 2026-11-19: TST is only on the TST/HP days; on the other days the TST cells say so (grey), not red "missing"
+    tst_day = N in TST_HP_DAYS
     rows = []
     for c, m in MICE:
         g = A[(A.cage == c) & (A.mouse == m)]
@@ -242,9 +246,13 @@ def assays_slide(prs, blank, N, foot):
         fix = run == "viewfix"
         chk = ("hand score" if src == "hand" else
                f"{'camera-view fix' if fix else 'untouched'}; not mouse {nm:g} %" if nm == nm else run)
+        if tst_day or tst == tst:
+            tst_cells = [cell(f"{tst:.1f} %" if tst == tst else "missing", tst == tst, fix),
+                         cell(chk if tst == tst else "-", tst == tst, fix)]
+        else:
+            tst_cells = [("no TST today", "F2F4F7", MUTED, False), ("-", "F2F4F7", MUTED, False)]
         row = [(f"{c} {m}", "FFFFFF", TEXT, True), cell(f"{ti:.2f}" if ti == ti else "missing", ti == ti),
-               cell(f"{tst:.1f} %" if tst == tst else "missing", tst == tst, fix),
-               cell(chk if tst == tst else "-", tst == tst, fix)]
+               *tst_cells]
         hot_ok = str(r.get("hot_file", "")) not in ("", "nan")
         for hc in hot_cols:
             v = num(r.get(hc))
