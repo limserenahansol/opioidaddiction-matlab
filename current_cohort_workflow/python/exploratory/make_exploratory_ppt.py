@@ -147,6 +147,7 @@ def side_slide(prs, img, ttl, sub, read, concl, n, date, fig_w=7.6, read_h=2.6, 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", default="20261119")
+    ap.add_argument("--suffix", default="", help="e.g. _v2 when the earlier deck is open in PowerPoint")
     a = ap.parse_args(argv)
     D = P / "analysis" / "exploratory" / a.date
     R = json.loads((D / "results.json").read_text(encoding="utf-8"))["results"]
@@ -178,7 +179,7 @@ def main(argv=None) -> int:
         (f"{100 * (1 - e7['median_fraction_left']):.0f} %", "보상 뒤 동공 확장 중 lick 이 설명하는 부분", "E7"),
         (f"{icc['rewards']['icc31']:.2f}", f"보상 수의 날짜 간 재현성 (동공 크기는 {icc['pupil_median_px']['icc31']:.2f})",
          "E5"),
-        (f"{e4['rho_strict_vs_TI']:.2f}", "hot plate 와 꼬리 담그기의 상관 (서로 반대)", "E4"),
+        (f"{e4['rho_reflexive_vs_TI']:.2f}", "hot plate 반사 반응 (떨기) 과 꼬리 담그기의 상관", "E4"),
     ]
     for i, (big, lbl, tag) in enumerate(cards):
         cx, cy = 0.55 + (i % 3) * 4.1, 1.65 + (i // 3) * 2.65
@@ -244,17 +245,20 @@ def main(argv=None) -> int:
                     " → 다른 방법으로 다시 확인", "b")], 6, date, fig_w=6.6, read_h=1.95, size=14, concl_h=3.45)
 
     # 7 E4
-    strict = sorted(v for v in e4["latency_strict_s"].values() if v is not None)
-    side_slide(prs, D / "E4_hp_latency" / "E4_hp_latency_vs_ti.png", "두 통증 검사가 반대 방향으로 나왔습니다 (E4)",
-               "5일 (모르핀 전), 8마리", [
-                   ("점 하나 = 쥐 하나", "b"),
-                   ("가로 = 꼬리 담그기 지연, 세로 = hot plate 첫 반응 (떨기 · 뒷발 핥기 · 점프) 까지 시간", "b"),
+    # user 2026-11-19: flinching = reflexive (like the tail flick); licking / hindlimb licking / rearing = affective
+    wide_slide(prs, D / "E4_hp_latency" / "E4_hp_latency_vs_ti.png",
+               "hot plate: 반사 반응과 정서 반응을 나눠 봤습니다 (E4)",
+               "5일 (모르핀 전), 8마리 · 떨기 = 반사, 핥기 · 뒷발 핥기 · 일어서기 = 정서", [
+                   ("점 하나 = 쥐 하나. 가로 = 꼬리 담그기 지연", "b"),
+                   ("세로 = 판에 올린 뒤 첫 반응까지 시간 (영상 첫 프레임 = 올린 순간)", "b"),
+                   ("왼쪽: 반사 (첫 떨기) · 오른쪽: 정서 (첫 핥기 · 뒷발 핥기 · 일어서기)", "b"),
                    ("빨강 = Active, 파랑 = Passive (6일부터)", "b")], [
-                   (f"8마리 모두 30초 안에 반응 ({strict[0]:.1f}–{strict[-1]:.1f}초)", "b"),
-                   (f"상관 {e4['rho_strict_vs_TI']:.2f} (p {e4['p_strict']:.3f}): 꼬리가 늦은 쥐가 hot plate 는 빨랐음",
-                    "b"),
-                   ("두 검사가 같은 것을 재지 않을 수 있음 → 금단 통증 점수에서는 따로 봄", "b"),
-                   ("8마리라 우연일 수도 있음", "b2")], 7, date, fig_w=7.2, read_h=2.3, size=14, concl_h=2.75)
+                   ("앞에서 쓴 값 (떨기 · 뒷발 핥기 · 점프 중 첫 반응) 은 8마리 모두 떨기였음", "b"),
+                   (f"반사 vs 꼬리 {e4['rho_reflexive_vs_TI']:.2f} (p {e4['p_reflexive']:.2f}): 기대한 (+) 와 반대", "b"),
+                   (f"정서 vs 꼬리 {e4['rho_affective_vs_TI']:.2f} (p {e4['p_affective']:.2f}) · 반사 vs 정서 "
+                    f"{e4['rho_reflexive_vs_affective']:+.2f}", "b"),
+                   ("꼬리 값 범위가 좁고 (0.96–1.55초) 8마리뿐 → 10 · 13 · 16 · 18일의 변화로 다시 봄", "b")], 7, date,
+               fig_h=2.95)
 
     # 8 E6
     wide_slide(prs, D / "E6_engagement_hmm" / "E6_engagement_hmm.png", "참여 상태 모델 (HMM): 아직 쓸모 없음 (E6)",
@@ -286,7 +290,7 @@ def main(argv=None) -> int:
             ("PR 과 lick 수는 하나로 묶고, '그만둔 시각' 을 함께 봄", "E1"),
             ("동공 보상 비교 (Active vs Passive) 에는 lick 을 꼭 모델에 넣음", "E7"),
             ("lick 묶음 개수 (찾기) 와 크기 (좋아함) 를 6–10일에 따로 봄", "E3"),
-            ("통증 검사 두 개 (꼬리 담그기, hot plate) 는 따로 봄", "E4"),
+            ("hot plate 는 반사 (떨기) 와 정서 (핥기 · 일어서기) 를 나눠 봄", "E4"),
             ("참여 상태 모델은 10초 단위나 3상태로 다시 시험", "E6"),
             ("성별 결과는 시간대와 겹치므로 설명용으로만", "E2")]
     for i, (txt, tag) in enumerate(rows):
@@ -307,7 +311,7 @@ def main(argv=None) -> int:
                 name=f"Change {tag}")
     footer(s, 10, date)
 
-    out = P / "analysis" / "ppt" / f"exploratory_days1-5_{date}.pptx"
+    out = P / "analysis" / "ppt" / f"exploratory_days1-5_{date}{a.suffix}.pptx"
     out.parent.mkdir(parents=True, exist_ok=True)
     prs.save(out)
     print(out)

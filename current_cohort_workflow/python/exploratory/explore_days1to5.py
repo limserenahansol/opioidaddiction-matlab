@@ -360,8 +360,21 @@ def e4(man, out: Path, res: dict):
             j = np.flatnonzero(np.isin(sc, ids))
             return float(j[0] / fr) if len(j) else np.nan
 
+        # user 2026-11-19: flinching is the REFLEXIVE response (like the tail flick); licking, hindlimb licking and
+        # rearing are AFFECTIVE (not reflexive). Jump (escape) is kept apart.
+        reflex = [i for i, n in enumerate(low) if "flinch" in n]
+        affect = [i for i, n in enumerate(low) if n in ("licking", "hindlimb licking", "rearing")]
+        jump = [i for i, n in enumerate(low) if "jump" in n]
+
+        def onsets(ids):
+            on = np.isin(sc, ids).astype(int)
+            return int(np.sum(np.diff(np.r_[0, on]) == 1))
+
         r = dict(cage=cage, mouse=mouse, mouse_id=f"{cage}_{mouse}", group=man.loc[f"{cage}_{mouse}", "group"],
                  file=f.name, frames=len(sc), fps=fr, seconds=round(len(sc) / fr, 2), behaviour_names="|".join(names),
+                 latency_reflexive_flinch_s=first(reflex), latency_affective_s=first(affect),
+                 latency_jump_s=first(jump), n_flinch_onsets=onsets(reflex), n_affective_onsets=onsets(affect),
+                 pct_affective=round(100 * float(np.mean(np.isin(sc, affect))), 2),
                  latency_flinch_hindlick_jump_s=first(strict), latency_incl_licking_s=first(broad))
         for i, n in enumerate(names):
             r[f"pct_{n.replace(' ', '_')}"] = round(100 * float(np.mean(sc == i)), 2)
@@ -375,22 +388,41 @@ def e4(man, out: Path, res: dict):
     H.to_csv(d / "E4_hp_latency_day5.csv", index=False)
     rs = spearman(H.latency_flinch_hindlick_jump_s, H.tail_immersion_s)
     rb = spearman(H.latency_incl_licking_s, H.tail_immersion_s)
+    rr = spearman(H.latency_reflexive_flinch_s, H.tail_immersion_s)
+    ra = spearman(H.latency_affective_s, H.tail_immersion_s)
+    rpa = spearman(H.pct_affective, H.tail_immersion_s)
+    rra = spearman(H.latency_reflexive_flinch_s, H.latency_affective_s)
     res["E4"] = dict(n=len(H), names=H.behaviour_names.iloc[0] if len(H) else "",
+                     rho_reflexive_vs_TI=rr[0], p_reflexive=rr[1], n_reflexive=rr[2],
+                     rho_affective_vs_TI=ra[0], p_affective=ra[1], n_affective=ra[2],
+                     rho_pct_affective_vs_TI=rpa[0], rho_reflexive_vs_affective=rra[0],
+                     no_flinch_in_30s=int(H.latency_reflexive_flinch_s.isna().sum()),
+                     latency_reflexive_s={lab(m): (None if pd.isna(v) else round(float(v), 2))
+                                          for m, v in zip(H.mouse_id, H.latency_reflexive_flinch_s)},
+                     latency_affective_s={lab(m): (None if pd.isna(v) else round(float(v), 2))
+                                          for m, v in zip(H.mouse_id, H.latency_affective_s)},
+                     tail_immersion_s={lab(m): (None if pd.isna(v) else round(float(v), 2))
+                                       for m, v in zip(H.mouse_id, H.tail_immersion_s)},
                      latency_strict_s={lab(m): (None if pd.isna(v) else round(float(v), 2))
                                        for m, v in zip(H.mouse_id, H.latency_flinch_hindlick_jump_s)},
                      latency_broad_s={lab(m): (None if pd.isna(v) else round(float(v), 2))
                                       for m, v in zip(H.mouse_id, H.latency_incl_licking_s)},
                      no_response_in_30s=int(H.latency_flinch_hindlick_jump_s.isna().sum()),
                      rho_strict_vs_TI=rs[0], p_strict=rs[1], rho_broad_vs_TI=rb[0])
-    fig, ax = plt.subplots(figsize=(6.2, 4.4))
-    for r in H.itertuples():
-        y = r.latency_flinch_hindlick_jump_s if pd.notna(r.latency_flinch_hindlick_jump_s) else 30.5
-        ax.scatter(r.tail_immersion_s, y, color=GCOL.get(r.group, "k"), s=45,
-                   marker="o" if pd.notna(r.latency_flinch_hindlick_jump_s) else "^")
-        ax.annotate(lab(r.mouse_id), (r.tail_immersion_s, y), fontsize=7, xytext=(3, 3), textcoords="offset points")
-    ax.set_xlabel("tail immersion latency, day 5 (s)")
-    ax.set_ylabel("hot plate: first flinch / hind-paw lick / jump (s)")
-    ax.set_title(f"E4  day 5 baseline: Spearman {rs[0]:+.2f} (n {rs[2]}); triangle = none in 30 s", fontsize=10)
+    fig, axs = plt.subplots(1, 2, figsize=(11.5, 4.5))
+    for ax, col, rho, ttl in ((axs[0], "latency_reflexive_flinch_s", rr, "E4a  REFLEXIVE: first flinch"),
+                              (axs[1], "latency_affective_s", ra,
+                               "E4b  AFFECTIVE: first licking / hindlimb licking / rearing")):
+        for r in H.itertuples():
+            v = getattr(r, col)
+            y = v if pd.notna(v) else 30.5
+            ax.scatter(r.tail_immersion_s, y, color=GCOL.get(r.group, "k"), s=45, marker="o" if pd.notna(v) else "^")
+            ax.annotate(lab(r.mouse_id), (r.tail_immersion_s, y), fontsize=7, xytext=(3, 3),
+                        textcoords="offset points")
+        ax.set_xlabel("tail immersion latency, day 5 (s)")
+        ax.set_ylabel("hot plate latency from placement (s)")
+        ax.set_title(f"{ttl}\nSpearman vs TI {rho[0]:+.2f} (p {rho[1]:.2f}, n {rho[2]}); triangle = none in 30 s",
+                     fontsize=9.5)
     fig.tight_layout()
     save(fig, d / "E4_hp_latency_vs_ti.png")
     readme(d, "E4 - hot-plate first-response latency (idea L05)", [
@@ -398,7 +430,12 @@ def e4(man, out: Path, res: dict):
         "(`latency_flinch_hindlick_jump_s`), and also with forepaw Licking counted (`latency_incl_licking_s`).",
         "- Day 5 = the baseline before morphine. The plan uses % time per behaviour (HOT_Pct); this adds the standard "
         "latency (Balter & Dykstra 2013: hot-plate latency tracks spontaneous morphine withdrawal in mice).",
-        "- No response within 30 s = NaN (would be censored at 30 s)."])
+        "- No response within 30 s = NaN (would be censored at 30 s).",
+        "- **User 2026-11-19:** flinching is the REFLEXIVE response (closer to the tail-immersion reflex); licking, "
+        "hindlimb licking and rearing are AFFECTIVE responses, not reflexes. So the latencies are now split: "
+        "`latency_reflexive_flinch_s` (compare with TI) and `latency_affective_s`; jump is kept apart "
+        "(`latency_jump_s`). The old mixed columns are kept for comparison.",
+        "- The video starts when the mouse is put on the plate (user 2026-11-19), so frame 0 = placement."])
     return H
 
 
@@ -821,9 +858,13 @@ def main(argv=None) -> int:
     if E3 is not None:
         run("E5", e5, M, E3, E6, out, res)
     run("E7", e7, M, L, R, man, out, res)
-    (out / "results.json").write_text(json.dumps(dict(made=dt.datetime.now().isoformat(timespec="seconds"),
-                                                      tag=TAG, results=res, errors=errs), indent=2, default=str),
-                                      encoding="utf-8")
+    rj = out / "results.json"
+    if only and rj.exists():                       # a partial run keeps the other tests' results
+        old = json.loads(rj.read_text(encoding="utf-8"))
+        res = {**old.get("results", {}), **res}
+        errs = {**{k: v for k, v in old.get("errors", {}).items() if k not in only}, **errs}
+    rj.write_text(json.dumps(dict(made=dt.datetime.now().isoformat(timespec="seconds"), tag=TAG, results=res,
+                                  errors=errs), indent=2, default=str), encoding="utf-8")
     print(json.dumps(res, indent=1, default=str))
     print("errors:", list(errs) or "none")
     return 1 if errs else 0
