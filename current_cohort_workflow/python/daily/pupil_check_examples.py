@@ -422,18 +422,23 @@ def none_png(s):
 
 def overview(recs, frames, V, days, out):
     tw, th, cap = 300, 240, 58
-    LAB, HEAD = 70, 112
+    LAB, HEAD = 70, 130
     W = LAB + len(MICE) * (tw + 8)
     H = HEAD + len(days) * (th + cap + 8) + 30
     S = Image.new("RGB", (W, H), (250, 250, 250))
     dr = ImageDraw.Draw(S)
     dr.text((12, 10), f"Pupil the tables use, days {days[0]}-{days[-1]}: one frame per session + Claude's check",
             fill=(20, 20, 20), font=PES.font(26, True))
-    dr.text((12, 46), "green = pupil (package; 9670f green2 day 5 = dark-contrast repair) · pink = whole eye (eye "
-                      "damage) · caption = check, frames out (held + jumps + odd size / no eye + off eye)",
+    # 2026-11-18: the user asked "what is yellow and green which one you used?" - say what each colour is
+    dr.text((12, 46), "CIRCLES: green = the pupil in the tables (USED; package, 9670f green2 day 5 = dark-contrast "
+                      "repair) · orange dotted = the detector's blob in that frame, NOT used (refused by the tracker, "
+                      "before its smoothing, or the blob the repair replaced) · pink = whole eye (eye damage)",
+            fill=(60, 60, 60), font=PES.font(16))
+    dr.text((12, 68), "BORDER + caption = Claude's check: green = OK, yellow = NOISY, grey = no video · out % = frames "
+                      "the table fills from the neighbours (held + jumps + odd size / no eye + off eye)",
             fill=(60, 60, 60), font=PES.font(16))
     for j, (c, m) in enumerate(MICE):
-        dr.text((LAB + j * (tw + 8) + 6, 82), f"{c} {m}", fill=(20, 20, 20), font=PES.font(19, True))
+        dr.text((LAB + j * (tw + 8) + 6, 100), f"{c} {m}", fill=(20, 20, 20), font=PES.font(19, True))
     for i, d in enumerate(days):
         y = HEAD + i * (th + cap + 8)
         dr.text((10, y + th // 2 - 12), f"day {d}", fill=(20, 20, 20), font=PES.font(21, True))
