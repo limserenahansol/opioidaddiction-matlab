@@ -1152,7 +1152,8 @@ def check_licks(rep, ev, log, sync, is_pr, T, replay):
     if replay:
         n_obs = sum(1 for e in log["events"] if e.get("tag") == "observed_lick")
         rep.add("INFO", "E", "licks", f"Saleae onsets {n_sal} in the session, Python observed_lick {n_obs} (replay "
-                f"log: the sync matches only 'lick' records, so only the counts are shown)")
+                f"log: the sync matches only 'lick' records, so only the counts are shown). These are spout CONTACTS, "
+                f"not licks: the Passive spout sits inside the mouth (user 2026-11-19)")
         rep.add("INFO", "E", "Python-only", "not checked (replay log: observed licks do not move the task on)")
         return dict(licks_saleae=n_sal, licks_python=n_obs)
     licks = [e for e in log["events"] if e.get("tag") == "lick"]

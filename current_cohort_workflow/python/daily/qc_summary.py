@@ -200,6 +200,10 @@ def one_session(s, d, c, m, q, pr, keys):
     # licks
     n_cnt = num(s.python_only_valid) or 0
     lick_txt = f"licks Sal {num(s.licks_saleae)}, Py {num(s.licks_python)}" + (f" ({n_cnt} Py-only)" if n_cnt else "")
+    if "replay" in str(getattr(s, "paradigm", "")).lower():
+        # 2026-11-19 (user): the Passive spout sits inside the mouth - no licking is possible, so the lick line of a
+        # passive replay session shows contacts, not licks
+        lick_txt = f"contacts Sal {num(s.licks_saleae)}, Py {num(s.licks_python)} (not licks)"
     if n_cnt:
         po = py_only_counted(d, c, m, s.session)
         lock = float(s.lockout_median_s) if pd.notna(s.lockout_median_s) else np.nan

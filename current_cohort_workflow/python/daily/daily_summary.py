@@ -212,6 +212,7 @@ def parse_name(name: str, known: dict | None = None):
     return NameMatch(cage, mouse, "passive" if "passive" in low else "", day_n, flexible=True, notes=notes)
 
 
+LICK_TAG = re.compile(r'"tag":\s*"(?:observed_)?lick"')   # 2026-11-19: Python lick records, for the CSV choice
 MIN_SESSION_S = 120          # shorter Python runs are tests / aborted
 DEEP_MAX = 25                # max folder depth followed for folders changed on the searched day
 ALIAS_FILE = PROJECT / "session_aliases.csv"   # optional: session,cage,mouse (exact Python log name -> folder)
@@ -307,7 +308,8 @@ def read_python(p: Path):
         start = datetime.fromisoformat(first["t"])
         return dict(path=p, name=p.stem, start=start.timestamp(), start_str=first["t"][:19],
                     dur=float(last.get("elapsed", 0)), ended=last.get("tag") == "experiment_end",
-                    rewards=sum('"reward_cmd"' in ln for ln in lines), paradigm=first.get("paradigm", ""))
+                    rewards=sum('"reward_cmd"' in ln for ln in lines), paradigm=first.get("paradigm", ""),
+                    licks=sum(bool(LICK_TAG.search(ln)) for ln in lines))   # lick / observed_lick records
     except Exception:
         return None
 
@@ -331,14 +333,21 @@ def read_csv(p: Path):
                 return None
             ci = hdr.index("camera")
             ri = hdr.index("reward") if "reward" in hdr else None
+            li = hdr.index("lick") if "lick" in hdr else None          # 2026-11-19: lick onsets, for the CSV choice
             prev, first_cam, last_t, n_cam = "0", None, None, 0
             rprev, r_fall, rises = "0", -1.0, []
+            lprev, lick_on = "0", []
             for ln in f:
                 parts = ln.split(",")
                 if len(parts) <= ci:
                     continue
                 t, v = float(parts[0]), parts[ci].strip()
                 last_t = t
+                if li is not None and len(parts) > li:
+                    lv = parts[li].strip()
+                    if lv == "1" and lprev != "1":
+                        lick_on.append(t)
+                    lprev = lv
                 if v == "1" and prev != "1":
                     n_cam += 1
                     if first_cam is None:
@@ -351,7 +360,8 @@ def read_csv(p: Path):
                     if rv == "0" and rprev == "1":
                         r_fall = t
                     rprev = rv
-        return dict(path=p, first_cam=first_cam, last=last_t, n_cam=n_cam, rewards=rises)
+        return dict(path=p, first_cam=first_cam, last=last_t, n_cam=n_cam, rewards=rises,
+                    licks=lick_on if li is not None else None)
     except Exception:
         return None
 
@@ -464,10 +474,23 @@ def pair_day(found, ff, log):
             lag, x = min(c, key=lambda z: z[0]); s["sal"] = x; used.add(id(x)); s["sal_lag"] = lag
     # Saleae CSV: (1) same number of valve openings during the session as Python reward commands,
     # (2) camera pulses for the session length, (3) first camera pulse at (python start - capture start) if the
-    # .sal is known, (4) prefer the CSV saved in the same folder as that .sal
+    # .sal is known, (4) prefer the CSV saved in the same folder as that .sal.
+    # 2026-11-19 (user: "네, 고쳐 주세요"): a passive replay has the SAME reward times as its active partner and every
+    # export is called digital.csv, so (1)-(3) cannot tell the two apart (day 6: 9669m black and white got each
+    # other's CSV). Before (4) the choice now prefers (a) a CSV whose path names the session (an export folder named
+    # like the log, or the session's own project folder salae/dayN/<cage>/<mouse>/), (b) a CSV whose lick onsets in
+    # the session agree with the Python log's lick / observed_lick records, (c) the CSV saved soonest after the
+    # session ended; a CSV saved more than 60 s before the session ended comes last.
     for s in real:
         best = None
         n_rew, dur = s["py"]["rewards"], s["py"]["dur"]
+        py_end = s["py"]["start"] + dur
+        nm = s["py"]["name"].lower()
+        try:
+            own = (PROJECT / "salae" / f"day{s['day']}" / s["cage"] / s["mouse"]).resolve()
+        except Exception:   # noqa: BLE001
+            own = None
+        py_lk = s["py"].get("licks")
         for x in csvs:
             if id(x) in used or x["first_cam"] is None:
                 continue
@@ -476,21 +499,35 @@ def pair_day(found, ff, log):
                 continue
             if abs(x["n_cam"] - dur * CAM_HZ) > max(60, 0.03 * dur * CAM_HZ):
                 continue
+            named = nm in str(x["path"]).lower() or (own is not None and x["path"].parent.resolve() == own)
+            lk = x.get("licks")
+            if lk is not None and py_lk is not None:
+                n_lk = sum(1 for t in lk if x["first_cam"] - 0.1 <= t <= x["first_cam"] + dur + 2)
+                lick_bad = abs(n_lk - py_lk) > max(20, 0.5 * max(n_lk, py_lk))
+            else:
+                n_lk, lick_bad = None, False
+            try:
+                gap = x["path"].stat().st_mtime - py_end
+            except OSError:
+                gap = 0.0
+            late = gap if gap >= -60 else 1e9
             if s["sal"] is not None:
                 err = abs(x["first_cam"] - s["sal_lag"])
                 if err > 1.0:
                     continue
-                score = (x["path"].parent != s["sal"]["path"].parent, abs(len(in_sess) - n_rew), err)
+                score = (not named, lick_bad, x["path"].parent != s["sal"]["path"].parent, abs(len(in_sess) - n_rew),
+                         late, err)
             else:
-                py_end = s["py"]["start"] + dur
-                gap = x["path"].stat().st_mtime - py_end
                 if not 0 <= gap <= 3600:
                     continue
-                score = (False, abs(len(in_sess) - n_rew), gap)
+                score = (not named, lick_bad, False, abs(len(in_sess) - n_rew), late, gap)
             if best is None or score < best[0]:
-                best = (score, x)
+                best = (score, x, n_lk, lick_bad)
         if best:
             s["csv"] = best[1]; used.add(id(best[1]))
+            if best[3]:
+                s["problems"].append(f"CHECK: the chosen Saleae CSV has {best[2]} lick onsets in the session but the "
+                                     f"Python log has {py_lk} lick records - it may belong to another session")
             if s["sal"] is None:
                 s["problems"].append("no .sal found - CSV matched by reward count, pulse count and save time")
     # video: IC Capture stamps the file with the first frame time (= Python start, whole seconds)
