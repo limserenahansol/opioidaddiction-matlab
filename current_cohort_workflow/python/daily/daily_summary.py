@@ -714,6 +714,14 @@ def main(argv=None):
                 # model tracks the new sessions, then their Step 02 copy gets the whole eye in the pupil columns
                 print("\n=== WHOLE EYE (mice in wholeeye_mice.csv) ===")
                 run_wholeeye()
+                # dark-contrast repair of the package's pupil (2026-11-18; darkcontrast_sessions.csv in the pupil tree):
+                # only the listed sessions get a Step 02 copy whose pupil columns are repaired where the package sat
+                # on another dark blob (pupil_dark_contrast.py; the user: only 9670f green2 day 5)
+                print("\n=== DARK-CONTRAST PUPIL REPAIR (listed sessions only) ===")
+                rc_dc = subprocess.run([sys.executable, str(TOOLS / "darkcontrast_sessions.py"), "--project",
+                                        str(PROJECT)]).returncode
+                if rc_dc:
+                    print("  !! darkcontrast_sessions.py reported a problem (see above)")
                 # per-session pupil grade (added 2026-11-15): manual pupil_grades.csv, else automatic stability grade.
                 # All days are recomputed (a redone day's alignment check stays current); grade lines: today only
                 print("\n=== PUPIL QUALITY ===")

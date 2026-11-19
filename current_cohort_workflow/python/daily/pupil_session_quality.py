@@ -193,6 +193,7 @@ def main(argv=None):
             else:
                 pk = f"in the package's own concat_out {shift_words(psh)}"
             kind = ("full-pupil copy" if fixed.endswith("_fullpupil") else "whole-eye copy" if fixed.endswith(CC.WHOLE)
+                    else "dark-contrast repair copy" if fixed.endswith(CC.DARK)
                     else "best-effort copy" if fixed.endswith(CC.BEST) else "behavior-only table"
                     if fixed.endswith(CC.NOVID) else "sync-aligned copy")
             chk = f"ok ({kind} {fixed}; {pk})"

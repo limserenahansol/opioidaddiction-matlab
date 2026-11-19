@@ -12,6 +12,10 @@ A session folder <pupil_root>/dayN/<cage>/<mouse>/ can hold:
                                       whole eye between the lids (equivalent diameter of the eye opening); approved per
                                       mouse in wholeeye_mice.csv (every session of the mouse) or per session in
                                       wholeeye_sessions.csv (an explicit 'no' row there wins)
+  concat_out_<stamp>_darkcontrast     darkcontrast_sessions.py (2026-11-18): the package's pupil repaired where it sat
+                                      on another dark blob (pupil_dark_contrast.py: strong dark contrast + glint; the
+                                      package's own values kept on every frame the repair does not touch); approved per
+                                      session in darkcontrast_sessions.csv
 Which pupil tree the tables use: active_pupil_root() - the first line of <project>/pupil_active_root.txt (2026-11-17:
 pupil_tst_teach, the package re-run with the model retrained on the user's drawings), else pupil_tst_final.
 Corrected copies are OPTIONS for rare sessions (the user, 2026-11-15). A copy is used only while
@@ -34,11 +38,15 @@ BEST = "_besteffort"
 NOVID = "_behavioronly"
 # 2026-11-17: the whole eye of a mouse with eye damage (9670f black, 9669m black; wholeeye_sessions.py), user approved
 WHOLE = "_wholeeye"
-DERIVED = (SYNC, FULL, BEST, NOVID, WHOLE)
+# 2026-11-18: the package's pupil repaired where it jumped to another dark blob (pupil_dark_contrast.py +
+# darkcontrast_sessions.py), user approved per session ('9670f green2 5일에만 ... okay')
+DARK = "_darkcontrast"
+DERIVED = (SYNC, FULL, BEST, NOVID, WHOLE, DARK)
 LISTS = {SYNC: "alignment_fixes.csv", FULL: "fullpupil_sessions.csv", BEST: "besteffort_sessions.csv",
-         NOVID: "behavioronly_sessions.csv", WHOLE: "wholeeye_sessions.csv"}
+         NOVID: "behavioronly_sessions.csv", WHOLE: "wholeeye_sessions.csv", DARK: "darkcontrast_sessions.csv"}
 WHOLE_MICE = "wholeeye_mice.csv"            # cage,mouse,approved,reason: every session of an approved mouse
 WHOLE_DIR, WHOLE_CSV = "pupil_outputs_wholeeye", "wholeeye_CLEAN.csv"
+DARK_DIR, DARK_CSV = "pupil_outputs_darkcontrast", "pupil_dark_CLEAN.csv"
 ACTIVE_FILE = "pupil_active_root.txt"       # <project>/pupil_active_root.txt: the pupil tree the tables use
 # sessions approved automatically by a mouse-level option (fullpupil_mice.csv; fullpupil_sessions.py writes this file):
 # they count like rows of fullpupil_sessions.csv unless that list has a row for the session that is NOT approved
@@ -140,7 +148,7 @@ def session_key(session_dir: Path):
 
 def _rank(p: Path):
     m = _STAMP.match(p.name)
-    suf = 4 if p.name.endswith(NOVID) else 3 if p.name.endswith((BEST, WHOLE)) else 2 if p.name.endswith(FULL) else \
+    suf = 4 if p.name.endswith(NOVID) else 3 if p.name.endswith((BEST, WHOLE, DARK)) else 2 if p.name.endswith(FULL) else \
         1 if p.name.endswith(SYNC) else 0
     return (m.group(1) if m else p.name, suf, p.name)
 
@@ -169,7 +177,7 @@ def usable_runs(session_dir: Path, pupil_root: Path, approvals=None):
             continue
         if not (p / "fix_source.json").exists() or key not in approvals.get(suf, set()):
             continue
-        if suf in (FULL, BEST, WHOLE) and str(_source(p).get("base_run", "")).endswith(SYNC) and \
+        if suf in (FULL, BEST, WHOLE, DARK) and str(_source(p).get("base_run", "")).endswith(SYNC) and \
                 key not in approvals.get(SYNC, set()):
             continue          # built on a sync-aligned table whose approval was withdrawn
         out.append(p)
@@ -258,6 +266,17 @@ def wholeeye_pupil_csv(session_dir: Path, pupil_root: Path):
     if key is None or key not in approved_sessions(pupil_root, LISTS[WHOLE], warn=None):
         return None
     p = sd / WHOLE_DIR / WHOLE_CSV
+    return p if p.exists() else None
+
+
+def darkcontrast_pupil_csv(session_dir: Path, pupil_root: Path):
+    """the repaired pupil CSV (package CLEAN columns; pupil_dark_contrast.py) of a session approved in
+    darkcontrast_sessions.csv, else None"""
+    sd = Path(session_dir)
+    key = session_key(sd)
+    if key is None or key not in approved_sessions(pupil_root, LISTS[DARK], warn=None):
+        return None
+    p = sd / DARK_DIR / DARK_CSV
     return p if p.exists() else None
 
 

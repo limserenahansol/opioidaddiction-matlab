@@ -111,7 +111,8 @@ def from_name(stem: str):
 
 
 def option_of(name: str) -> str:
-    for s, txt in ((CC.WHOLE, "whole-eye copy"), (CC.BEST, "best-effort copy"), (CC.FULL, "full-pupil copy"),
+    for s, txt in ((CC.WHOLE, "whole-eye copy"), (CC.DARK, "dark-contrast repair copy"), (CC.BEST, "best-effort copy"),
+                   (CC.FULL, "full-pupil copy"),
                    (CC.NOVID, "behaviour-only copy"), (CC.SYNC, "sync-aligned copy")):
         if name.endswith(s):
             return txt
