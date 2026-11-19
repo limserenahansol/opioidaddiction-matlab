@@ -106,7 +106,9 @@ def sessions(area: Path):
 
 def from_name(stem: str):
     """(cage, mouse, day) from a session name such as 9670fblack_prday4 or 9669mgreen1__fr3day1"""
-    m, d = NAME_RE.match(stem), re.search(r"day(\d+)", stem)
+    m, d = NAME_RE.match(stem), re.search(r"day(\d+)", stem, re.I)
+    if not m:   # 2026-11-19 (user): cage and colour anywhere in the name, e.g. passive_9670fblack_day6
+        m = re.search(r"(?<!\d)(\d{4}[mf]).*?(black|white|green\d)", stem, re.I)
     return (m.group(1).lower(), m.group(2).lower()) if m else ("", ""), (int(d.group(1)) if d else "")
 
 

@@ -105,6 +105,8 @@ def partner_of(src: str):
     """'9670fgreen2_prday6.jsonl' -> '9670f green2' (the active partner a passive log replayed)"""
     import re
     m = re.match(r"(\d{4}[mf])_?(green1|green2|green|white|black)", Path(str(src)).name.lower())
+    if not m:   # 2026-11-19 (user): cage and colour anywhere in the name
+        m = re.search(r"(?<!\d)(\d{4}[mf]).*?(green1|green2|green|white|black)", Path(str(src)).name.lower())
     if not m:
         return Path(str(src)).stem
     mouse = "green1" if m.group(2) == "green" else m.group(2)

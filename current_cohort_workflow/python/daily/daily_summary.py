@@ -126,6 +126,92 @@ SKIP_ROOTS = {str(p).lower() for p in local_paths("skip_roots") if p.resolve() !
 NAME_RE = re.compile(r"^(?P<cage>\d{4}[mfMF]?)_*(?P<mouse>[A-Za-z]+\d*)_*"
                      r"(?P<task>fr\d+|pr\d*[a-z0-9]*|e?passive|active)?_*day(?P<day>\d+)",   # passive: days 6-10
                      re.I)
+# 2026-11-19 (user, day 6): "you can make your rule more flexible if I made also a bit different name you can still
+# find in file 'black' and 'Passive' no matter of position". The day-6 passive logs 9670fgreen1passive_prday6 and
+# 9670fblackpassive_prday6 were 'name not understood' / mouse 'blackpassive' under NAME_RE alone. parse_name() keeps
+# NAME_RE's answer whenever it gives a mouse already filed in that cage (so every name that worked before is read the
+# same way) and otherwise finds the cage, the mouse colour and 'day<N>' anywhere in the name, in any order and case.
+COLOURS = ("green1", "green2", "green3", "green4", "black", "white", "orange", "red", "blue", "yellow", "pink",
+           "green")
+CAGE_ANY = re.compile(r"(?<!\d)(\d{4})([mf])?(?!\d)", re.I)
+DAY_ANY = re.compile(r"day[\s_-]*(\d{1,2})(?!\d)", re.I)
+
+
+class NameMatch:
+    """What NAME_RE.match gives (m.group('cage' | 'mouse' | 'task' | 'day'), m['...']), plus .flexible and .notes."""
+
+    def __init__(self, cage, mouse, task, day, flexible=False, notes=()):
+        self._g = {"cage": cage, "mouse": mouse, "task": task, "day": str(day)}
+        self.flexible = flexible
+        self.notes = list(notes)
+
+    def group(self, key):
+        return self._g[key]
+
+    __getitem__ = group
+
+
+def parse_name(name: str, known: dict | None = None):
+    """cage / mouse / task / day of a Python log name (a NameMatch), or None when it cannot be read.
+    1) NAME_RE (<cage><mouse>_<task>day<N>) when it gives a mouse already filed in that cage, the start of one (e.g.
+       'green' -> green1 / green2, settled later by resolve_mouse_names), or when no mice are filed yet.
+    2) Otherwise the cage (a filed cage folder such as 9670f, or its 4 digits, else any stand-alone 4 digits + m/f), the
+       first filed mouse name / colour after it, and 'day<N>', anywhere in the name ('passive' anywhere too). Several
+       mouse names -> the first one after the cage, with a CHECK note.
+    3) Nothing found by 2) -> NAME_RE's answer if there was one (a new mouse name, as before), else None."""
+    known = known or {}
+    low = name.lower()
+    m = NAME_RE.match(name)
+    strict = None
+    if m:
+        cage, mouse = m.group("cage").lower(), m.group("mouse").lower()
+        notes = []
+        if known and cage not in known:                # e.g. '9669' without m/f -> the one filed cage 9669m
+            kc = [k for k in known if k[:4] == cage[:4]]
+            if len(kc) == 1:
+                notes.append(f"cage '{cage}' read as the filed cage {kc[0]}")
+                cage = kc[0]
+        strict = NameMatch(cage, mouse, (m.group("task") or "").lower(), m.group("day"), notes=notes)
+        km = known.get(cage, set())
+        if not km or mouse in km or any(k.startswith(mouse) for k in km):
+            return strict
+    d = DAY_ANY.search(low)
+    if not d:
+        return strict
+    cage, cpos = None, None
+    for kc in sorted(known, key=len, reverse=True):
+        i = low.find(kc)
+        if i < 0 and re.fullmatch(r"\d{4}[mf]", kc):
+            j = [mm.start() for mm in CAGE_ANY.finditer(low) if mm.group(1) == kc[:4]]
+            i = j[0] if j else -1
+        if i >= 0 and (cpos is None or i < cpos):
+            cage, cpos = kc, i
+    if cage is None:
+        mm = CAGE_ANY.search(low)
+        if not mm:
+            return strict
+        cage, cpos = (mm.group(1) + (mm.group(2) or "")).lower(), mm.start()
+    km = known.get(cage, set())
+    names = (km | {re.sub(r"\d+$", "", k) for k in km}) if km else set(COLOURS)
+    hits = []
+    for nm in sorted(names, key=len, reverse=True):          # green1 before green
+        for mm in re.finditer(re.escape(nm), low):
+            if not any(a <= mm.start() < a + len(b) for a, b in hits):
+                hits.append((mm.start(), nm))
+    if not hits:
+        return strict
+    after = sorted(h for h in hits if h[0] >= cpos)
+    _, mouse = (after or sorted(hits))[0]
+    day_n = int(d.group(1))
+    notes = [f"name read by the flexible rule (cage, mouse and day<N> anywhere in the name): cage {cage}, mouse "
+             f"{mouse}, day {day_n}"]
+    others = sorted({b for _, b in hits} - {mouse})
+    if others:
+        notes.append(f"CHECK: the name also contains {', '.join(others)}; read as {mouse} (the first after the cage). "
+                     f"If wrong, add a line to session_aliases.csv")
+    return NameMatch(cage, mouse, "passive" if "passive" in low else "", day_n, flexible=True, notes=notes)
+
+
 MIN_SESSION_S = 120          # shorter Python runs are tests / aborted
 DEEP_MAX = 25                # max folder depth followed for folders changed on the searched day
 ALIAS_FILE = PROJECT / "session_aliases.csv"   # optional: session,cage,mouse (exact Python log name -> folder)
@@ -350,8 +436,9 @@ def pair_day(found, ff, log):
         if k in known_tests and PROJECT not in p["path"].parents:
             continue
         uniq.setdefault(k, p)
+    known_now = known_mice()
     for p in sorted(uniq.values(), key=lambda x: x["start"]):
-        m = NAME_RE.match(p["name"])
+        m = parse_name(p["name"], known_now)           # 2026-11-19: flexible names (see parse_name)
         s = dict(py=p, sal=None, csv=None, video=None, problems=[])
         if not p["ended"] and (datetime.now().timestamp() - p["path"].stat().st_mtime) < 300:
             s["status"] = "RUNNING (skipped)"
@@ -362,6 +449,11 @@ def pair_day(found, ff, log):
             s["status"] = "session"
             s["cage"], s["mouse"] = m.group("cage").lower(), m.group("mouse").lower()
             s["day"] = int(m.group("day"))
+            s["problems"].extend(m.notes)
+            said, is_replay = "passive" in p["name"].lower(), "replay" in str(p.get("paradigm", "")).lower()
+            if said != is_replay:                      # 2026-11-19: the name and the log disagree -> say so
+                s["problems"].append(f"CHECK: the name {'says' if said else 'does not say'} passive, but the log's "
+                                     f"paradigm is {p.get('paradigm') or 'not given'}")
         sessions.append(s)
     real = [s for s in sessions if s["status"] == "session"]
     resolve_mouse_names(real, log)

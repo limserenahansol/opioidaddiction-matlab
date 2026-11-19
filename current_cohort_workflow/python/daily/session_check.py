@@ -535,7 +535,7 @@ def other_logs(ctx):
         elif s["status"] == "name not understood":
             kind, ko, check = (f"name not understood ({p['dur']:.0f} s): the evening run will NOT file it, and it "
                                f"could not be checked here", "파일 이름 인식 불가", True)
-        elif ds.NAME_RE.match(p["name"]):
+        elif ds.parse_name(p["name"], ds.known_mice()):     # 2026-11-19: the flexible name rule
             kind, ko, check = (f"aborted run with a session name ({p['dur']:.0f} s, shorter than "
                                f"{ds.MIN_SESSION_S} s; the evening run files it under _tests_and_aborted)",
                                f"중단된 실행 {p['dur']:.0f} s", True)
@@ -624,8 +624,13 @@ def check_name(rep, s, ctx, row):
                  f"{s['day'] if s['day'] is not None else '?'} ({s['provisional']['day_src']}); its .sal, CSV and "
                  f"video were paired by time like any session")
     else:
-        m = ds.NAME_RE.match(name)
+        m = ds.parse_name(name, ds.known_mice())      # 2026-11-19: the flexible name rule of daily_summary
         cage, mouse, task = m.group("cage").lower(), m.group("mouse").lower(), (m.group("task") or "").lower()
+        for nt in m.notes:
+            if nt.startswith("CHECK"):
+                rep.add("CHECK", "B", "name", nt, ko="이름에 다른 쥐 이름도 있음")
+            else:
+                rep.add("INFO", "B", "name", nt)
     known = ds.known_mice()
     if not known:
         rep.add("INFO", "B", "cage/mouse", f"cage {cage}, mouse {mouse}, task '{task or '-'}' "
@@ -909,7 +914,7 @@ def check_replay(rep, log, s, ctx):
                         "원본이 끝나기 전에 시작"))
     if not s_end:
         bad.append(("it has no experiment_end (the active session crashed or was killed)", "원본 experiment_end 없음"))
-    m_src = ds.NAME_RE.match(p_src.stem)
+    m_src = ds.parse_name(p_src.stem, ds.known_mice())     # 2026-11-19: the flexible name rule
     src_cm = (m_src.group("cage").lower(), m_src.group("mouse").lower()) if m_src else None
     if src_cm and src_cm == (str(s["cage"]).lower(), str(s["mouse"]).lower()):
         bad.append(("it is a log of this same mouse", "같은 마우스의 로그"))
