@@ -8,11 +8,11 @@
      를 선택하고, tools\PR_passive_block_for_main_hansol_v2.txt 의 내용 전체로 바꿔 붙여 넣기 -> Ctrl+S.
      위쪽(import, SESSION_SECONDS, bank, FR class)과 아래쪽은 그대로 둡니다.
      붙여 넣은 결과 = tools\main_hansol_day6_ready.py (이 파일로 가짜 Arduino 시험 45/45 통과, 2026-11-18).
-  2) lock-out 은 0.22 s (3-5일과 같음). 블록 첫 줄: FRLickTrial.REWARD_DURATION = 0.22
+  2) lock-out 은 0.22 s (3-5일과 같음; 2026-11-18 확인해 주심). 블록 첫 줄: FRLickTrial.REWARD_DURATION = 0.22
   3) 아침 밸브 시험: REPLAY_SOURCE = "" , OUTPUT = "test_day6.jsonl" -> 실행 -> SESSION_CHECK.bat
   4) 모르핀: Active, Passive 모두 밸브 라인 (11-16 결정). 펌프(injector)는 쓰지 않습니다.
-     ※ main_hansol.py 아래쪽의 주석 블록 MicroLogReplayExperiment 는 예전 cohort(Mac 포트 + 펌프 포트)용 -
-       쓰지 마세요. 6일 블록의 LogReplayExperiment 가 같은 재생을 밸브만으로 합니다.
+     ※ main_hansol.py 아래쪽의 주석 블록 MicroLogReplayExperiment 는 예전 cohort(Mac 포트 + 펌프 포트)용.
+       그대로 두면 아무 일도 없습니다 (주석). 그 블록을 직접 고쳐 쓰실 경우는 맨 아래 [B] 를 보세요.
 
 [1] 마우스마다: 아래 두 줄만 바꾸고 Ctrl+S -> 실행
     (IC Capture 영상, Logic 캡처도 OUTPUT 과 같은 이름으로)
@@ -43,3 +43,22 @@
 [3] 꼬리 담그기 (TI) 잠복기: 보내 주시면 기록합니다 (5일부터 매일).
 
 [4] 모두 끝나면 "실험 끝" 이라고 알려 주세요 -> PR 표 + QC 먼저, 그 다음 동공과 PPT.
+
+[B] v2 블록 대신, main_hansol.py 아래쪽의 주석 블록을 직접 고쳐 쓰실 때 (재생 방식은 v2 와 같음)
+  패시브 블록은 이렇게:
+      from experiments.ratio_tasks import LogReplayExperiment
+      exp = LogReplayExperiment(                    # MicroLogReplayExperiment 아님 (그건 펌프 포트가 필요)
+          port="COM3",
+          cue_bank=bank,
+          replay_log="9670fgreen2_prday6.jsonl",    # 짝 Active 의 오늘 로그 (끝난 것)
+          output="9670fgreen1_passiveday6.jsonl",   # 이 패시브 마우스 ("passive" + "day6")
+          cam_trigger=True,
+      )
+      exp.run()
+    - injector_port 줄과 #n_trials 줄은 지웁니다 (시행 수는 원본 로그에서 정해짐).
+  매번 주석을 바꿔야 합니다:
+    - Passive 마우스: 위의 PR 블록 (140-153번 줄: exp = TimedProgressiveRatioExperiment( ... 부터 exp.run() 까지)
+      을 주석 처리. 안 하면 15분 PR 이 먼저 돌고 나서 재생이 시작됩니다.
+    - Active 마우스: 반대로 이 패시브 블록을 주석 처리.
+  이 방식에는 원본 검사가 없습니다: 짝이 덜 끝난 로그, 어제 로그, 패시브 로그를 넣어도 그대로 시작합니다.
+  -> 시작 전에 replay_log 이름을 꼭 한 번 더 확인하세요. v2 블록은 이것을 자동으로 확인합니다.
