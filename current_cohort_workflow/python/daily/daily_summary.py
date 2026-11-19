@@ -13,10 +13,14 @@ daily_summary.py - end-of-day routine ("summary of today behavior result").
               then the options for rare sessions - the alignment fixes of alignment_fixes.csv
               (fix_concat_alignment.py) and the full-pupil traces of fullpupil_sessions.csv (fullpupil_sessions.py;
               its screen is not run daily) - then pupil grades + alignment check
-              (pupil_session_quality.py), guess traces and the eye-box check sheet
+              (pupil_session_quality.py), guess traces and the eye-box check sheet; then (2026-11-18) the pupil check
+              pictures of all days (pupil_check_examples.py -> analysis\\pupil_check\\: one picture per session of the
+              pupil the tables use, with the frames out; Claude writes the verdicts after looking)
   5) CHECKS   (report only, added 2026-11-15) session_check.py --all for this date (protocol, valve time, licks,
               camera frames vs pulses, Saleae settings vs tools\\protocol_expected.csv) and pr_daily_checks.py
-              (per-mouse PR table: analysis\\days\\dayN\\pr_checks_dayN.txt/.csv and figs\\12_pr_checks.png)
+              (per-mouse PR table: analysis\\days\\dayN\\pr_checks_dayN.txt/.csv and figs\\12_pr_checks.png);
+              then (2026-11-18) pr_table_days.py: the PR of every mouse on every day in one table
+              (analysis\\days\\pr_table_days1-N.csv/.png)
   5b) ASSAYS (added 2026-11-18; --no-assays skips it) assays_day.py: the day's TST / hot-plate videos (Logitech
               Capture folder, names <cage><mouse>_TST_dayN / _HOT_dayN) copied to tst_video / hp_video; TST scored
               automatically on the FIRST 3 MIN (tst_mouse_lock.py: the package scorer unchanged + per-frame mouse
@@ -731,6 +735,14 @@ def main(argv=None):
                                 "--pupil-root", str(pupil_root()), "--days", str(dn)])
                 print("\n=== ANALYSIS (again, now with pupil) ===")
                 quick_analysis.main(["--root", str(PROJECT)])
+                # pupil check pictures (added 2026-11-18, user: "show me png files as example ... your confirmation this
+                # session is okay if it is noisy how many frames are out"): one picture per session of the pupil the
+                # tables use + the frames out; report only. Claude then looks at the new day's pictures and writes the
+                # verdicts in analysis\\pupil_check\\pupil_check_verdicts.csv (the deck shows LOOK until then)
+                print("\n=== PUPIL CHECK PICTURES (all days so far) ===")
+                if subprocess.run([sys.executable, "-B", str(TOOLS / "pupil_check_examples.py"), "--days",
+                                   *map(str, range(1, dn + 1))]).returncode:
+                    print("  !! pupil_check_examples.py could not finish (see above)")
             # eye-box check (added 2026-11-15): the package re-uses the previous day's ROI; mice sit differently daily
             print("\n=== PUPIL ROI CHECK ===")
             subprocess.run([sys.executable, str(TOOLS / "pupil_roi_check.py"), "--root", str(PROJECT), "--day", str(dn),
@@ -757,6 +769,13 @@ def main(argv=None):
             print(f"  CHECK lines: analysis\\days\\day{dn}\\pr_checks_day{dn}.txt")
         elif rc_pr:
             print("  !! pr_daily_checks.py could not write its outputs (file open in Excel?) - see above")
+        # PR score of every mouse on every day so far, one table (added 2026-11-18, user: "all days' PR score table")
+        print("\n=== PR TABLE (all days so far) ===")
+        rc_pt = subprocess.run([sys.executable, "-B", str(TOOLS / "pr_table_days.py")]).returncode
+        if rc_pt == 1:
+            print("  !! rewards Python != Saleae in a session (see above)")
+        elif rc_pt:
+            print("  !! pr_table_days.py could not finish (see above)")
         # TST + HOT of the day (added 2026-11-18; TST/HP days 5, 10, 13, 16, 18): videos copied into tst_video /
         # hp_video, TST scored automatically on the first 3 min -> assays\dayN\...\ManualScoringResults_<video>_AUTO.mat
         # (the name the original Step 02 reads), HOT first-30-s copies for the hand scorer and its .mat files filed;

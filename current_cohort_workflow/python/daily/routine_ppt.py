@@ -3,17 +3,21 @@
 folder address where I can find all plots and representative plots as fundamental, what to do better next";
 complicated analysis waits until after day 18). Report only: reads what the routine made, changes nothing.
 
-  1  overview: counts, today's PR, decisions needed       2  QC per session (green / yellow / red)
-  3  data problems found and what was done                 4  routine problems fixed (rig, files, software)
-  5  where to find all plots                                6-10  basic plots (previous-cohort figures + daily figures)
-  11 what to do better next
-  (+ after slide 2, on assay days: TI / TST / HOT of the day from analysis\\days\\dayN\\assays_dayN.csv; added 2026-11-18)
+  1  overview: counts, today's PR, decisions needed       2  PR score per mouse and day, all days (2026-11-18)
+  3  QC per session (green / yellow / red)                 (+ on assay days: TI / TST / HOT of the day, 2026-11-18)
+  4  pupil check per session: Claude's check and the frames out, + the overview picture (2026-11-18)
+  5  data problems found and what was done                 6  routine problems fixed (rig, files, software)
+  7  where to find all plots                                8-13  basic plots (previous-cohort figures + daily figures)
+  14 what to do better next
+  appendix: the pupil-check picture of every session of --pupil-days (default: the last day), one per slide
+  (slide numbers move with the assay slide and the number of overview pictures; slide 1 lists them)
 
 Sources (inside the project): analysis\\days\\qc_summary_days*.csv and qc_issues_days*.csv (tools\\qc_summary.py),
 analysis\\days\\routine_log.csv and next_steps.csv (kept by Claude), analysis\\days\\dayN\\pr_checks_dayN.csv,
 analysis\\reference\\prev_cohort_pr_days3to5.csv, analysis\\figs_across_days\\, analysis\\cohort_figs\\run_###\\,
-analysis\\days\\dayN\\figs\\.
-usage:  python routine_ppt.py [--days 1 2 3 4] [--out FILE.pptx]
+analysis\\days\\dayN\\figs\\, analysis\\days\\pr_table_days*.csv (tools\\pr_table_days.py), analysis\\pupil_check\\
+(tools\\pupil_check_examples.py; both are refreshed by this script, like the QC picture).
+usage:  python routine_ppt.py [--days 1 2 3 4] [--pupil-days 1 2 3 4 5] [--out FILE.pptx]
 """
 from __future__ import annotations
 
@@ -33,6 +37,8 @@ TOOLS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOLS))
 import make_summary_ppt as MS  # noqa: E402  (look and helpers of the first PPT tool)
 import qc_summary as QS  # noqa: E402
+import pr_table_days as PT  # noqa: E402  (PR score per mouse and day, 2026-11-18)
+import pupil_check_examples as PCE  # noqa: E402  (pupil check pictures + Claude's verdicts, 2026-11-18)
 
 P = TOOLS.parent
 DAYS_DIR = P / "analysis" / "days"
@@ -76,7 +82,8 @@ CAT = {
     "licks_extra": ("Python logged extra licks while the 500-ms valve was open (not counted)",
                     "Tables use the Saleae lick line; 200-ms valve since day 3", "noted"),
     "filename": ("File name without the mouse", "Filed by start time (the only free mouse)", "noted"),
-    "pupil_noisy": ("Pupil noisy (spout / whiskers cross the eye)", "Graded by eye; used, marked noisy", "noted"),
+    "pupil_noisy": ("Pupil noisy: ≥ 10 % of frames out (spout / whiskers / reflections) or wrong spikes",
+                    "Checked by eye on the pupil-check pictures; used in the tables, marked noisy", "noted"),
 }
 SHOW_SHORT = {"frames", "frames_open", "length", "off_eye", "off_eye_kept", "licks_extra", "lick_start", "lick_valve_close",
               "lick_late", "lick_unknown", "pupil_noisy", "rewards", "filename", "check_open"}
@@ -252,7 +259,183 @@ def assays_slide(prs, blank, N, foot):
     return True
 
 
-def build(days, out: Path):
+def _blue(v):
+    """fill for a PR cell: v = 0 (lowest PR of the table) .. 1 (highest)"""
+    a, b = (0xEE, 0xF4, 0xFB), (0x8F, 0xBB, 0xE3)
+    return "".join(f"{int(round(x + (y - x) * max(0.0, min(1.0, v)))):02X}" for x, y in zip(a, b))
+
+
+def pr_slide(prs, blank, days, foot):
+    """PR score of every mouse on every day so far (added 2026-11-18; user: "all days' PR score table show me them";
+    the user's order after an experiment: PR and QC first). tools\\pr_table_days.py: PR = pr_RL_full of
+    pr_checks_dayN.csv (last requirement = rewards + 1 in a full 910-s session); FR days = rewards in the first
+    15 min 10 s; rewards Python = Saleae per session; the previous cohort's PR of the day (first 910 s)."""
+    PT.main(["--days", *map(str, days)])        # refresh analysis\\days\\pr_table_days*.csv/.png (a few s)
+    Tb = PT.table(days)
+    s = prs.slides.add_slide(blank)
+    MS.add_title(s, "PR score per mouse and day",
+                 "PR = last ratio requirement = rewards + 1 (full 910-s session; the previous cohort's PR) · FR days: "
+                 "rewards in the first 15 min 10 s")
+    tasks = {d: (Tb[Tb.day == d].task.mode().iloc[0] if (Tb.day == d).any() else "") for d in days}
+    two = len(days) <= 8
+    w0, w1 = 1.6, 0.95
+    wd = (12.33 - w0 - w1) / len(days)
+    nrow = len(MICE) + 3
+    rh = 0.44 if two else 0.36
+    shp = s.shapes.add_table(nrow, len(days) + 2, Inches(0.5), Inches(1.45), Inches(12.33), Inches(0.34 + rh * (nrow - 1)))
+    shp.name = "PR table"
+    t = shp.table
+    t.columns[0].width, t.columns[1].width = Inches(w0), Inches(w1)
+    for j in range(len(days)):
+        t.columns[j + 2].width = Inches(wd)
+    t.rows[0].height = Inches(0.34)
+    for j, h in enumerate(["Mouse", "Group"] + [f"Day {d} · {tasks[d]}" for d in days]):
+        MS.style_cell(t.cell(0, j), [[(h, {"bold": True, "color": "FFFFFF"})]], NAVY, size=10 if two else 8,
+                      align=PP_ALIGN.CENTER if j >= 2 else PP_ALIGN.LEFT)
+    prv = Tb.pr.dropna()
+    lo, hi = (prv.min(), prv.max()) if len(prv) else (0, 1)
+    big, small = (12, 8) if two else (9, 7)
+    for i, (c, m) in enumerate(MICE, start=1):
+        t.rows[i].height = Inches(rh)
+        g = Tb[(Tb.cage == c) & (Tb.mouse == m)]
+        MS.style_cell(t.cell(i, 0), [[(f"{c} ", {"color": MUTED}), (m, {"bold": True})]], "FFFFFF", size=10)
+        grp = str(g.group.iloc[0]) if len(g) and str(g.group.iloc[0]) not in ("", "nan") else "-"
+        MS.style_cell(t.cell(i, 1), grp, "FFFFFF", size=9, color=MUTED)
+        for j, d in enumerate(days):
+            r = g[g.day == d]
+            cell = t.cell(i, j + 2)
+            if r.empty or r.task.iloc[0] == "missing":
+                MS.style_cell(cell, "-", "F2F2F2", size=big, align=PP_ALIGN.CENTER)
+                continue
+            r = r.iloc[0]
+            flag = "" if r.rewards_match else "  Python ≠ Saleae!"
+            if r.task == "PR":
+                lines = [[(f"{r.pr:.0f}", {"bold": True})]]
+                if two:
+                    lines.append([(f"rewards {r.rewards_python}{flag}", {"size": small, "color": MUTED})])
+                MS.style_cell(cell, lines, _blue((r.pr - lo) / max(1e-6, hi - lo)), size=big, align=PP_ALIGN.CENTER)
+            else:
+                lines = [[(f"R {r.rewards_910s:.0f}", {})]]
+                if two:
+                    sub = (f"untimed {r.session_s / 60:.0f} min: {r.rewards_python} in all" if r.session_s > 930
+                           else r.task) + flag
+                    lines.append([(sub, {"size": small, "color": "9A5B00" if r.session_s > 930 else MUTED})])
+                MS.style_cell(cell, lines, "EEF1F5", size=big, align=PP_ALIGN.CENTER)
+    for k, (lab, fill) in enumerate((("Median (range)", "FFF6DB"), ("Previous cohort (first 15:10)", "F6F7F9"))):
+        i = len(MICE) + 1 + k
+        t.rows[i].height = Inches(rh)
+        MS.style_cell(t.cell(i, 0), [[(lab, {"bold": True})]], fill, size=9)
+        MS.style_cell(t.cell(i, 1), "", fill, size=9)
+        for j, d in enumerate(days):
+            g = Tb[Tb.day == d]
+            if k == 0:
+                x = g.pr.dropna() if tasks[d] == "PR" else g.rewards_910s.dropna()
+                pre = "" if tasks[d] == "PR" else "R "
+                txt = [[(f"{pre}{x.median():g}", {"bold": True})], [(f"{x.min():.0f}–{x.max():.0f}",
+                                                                      {"size": small, "color": MUTED})]] if len(x) else "-"
+            else:
+                pm = g.prev_pr_median.dropna()
+                txt = ([[(f"{float(pm.iloc[0]):g}", {})], [(f"{float(g.prev_pr_min.dropna().iloc[0]):.0f}–"
+                                                            f"{float(g.prev_pr_max.dropna().iloc[0]):.0f}",
+                                                            {"size": small, "color": MUTED})]]
+                       if len(pm) else "-")
+            MS.style_cell(t.cell(i, j + 2), txt if two or txt == "-" else [txt[0]], fill, size=big,
+                          align=PP_ALIGN.CENTER)
+    done = Tb[Tb.task != "missing"]
+    n_ok = int(done.rewards_match.astype(bool).sum())
+    MS.add_text(s, 0.5, 6.42, 12.3, 0.5,
+                f"Rewards Python = Saleae in {n_ok}/{len(done)} sessions · previous cohort = reference only (training "
+                "and valve differ) · table and picture: analysis\\days\\pr_table_" +
+                (f"days{days[0]}-{days[-1]}" if len(days) > 1 else f"day{days[0]}") + ".csv / .png",
+                size=10, color=MUTED, name="PR note")
+    MS.add_footer(s, foot)
+
+
+def pupil_check_slides(prs, blank, days, foot):
+    """Claude's check of the pupil the tables use, every session so far (added 2026-11-18; user: "show me png files
+    as example of 8 mice x 5 days ... your confirmation this session is okay if it is noisy how many frames are
+    out"): tools\\pupil_check_examples.py -> analysis\\pupil_check\\ (one picture per session, the verdicts Claude
+    writes in pupil_check_verdicts.csv after looking, overview pictures). A session without a verdict is red."""
+    PCE.main(["--days", *map(str, days)])
+    tag = f"days{days[0]}-{days[-1]}" if len(days) > 1 else f"day{days[0]}"
+    C = pd.read_csv(PCE.OUT / f"pupil_check_{tag}.csv", dtype={"cage": str}, encoding="utf-8-sig")
+    C["verdict"] = C.verdict.fillna("").astype(str)
+    s = prs.slides.add_slide(blank)
+    MS.add_title(s, "Pupil check per session (Claude looked at every picture)",
+                 "ok = on the pupil and < 10 % out · noisy = ≥ 10 % out or wrong spikes")
+    legend(s, 7.3, 1.0, [(QC_FILL["green"], QC_TEXT["green"], "ok"), (QC_FILL["yellow"], QC_TEXT["yellow"], "noisy"),
+                         ("ECECEC", "555555", "no video"), (QC_FILL["red"], QC_TEXT["red"], "not looked at yet")])
+    w0 = 1.55
+    wd = (12.33 - w0) / len(days)
+    pt = 11 if len(days) <= 6 else 8
+    rh = 0.5
+    shp = s.shapes.add_table(len(MICE) + 1, len(days) + 1, Inches(0.5), Inches(1.45), Inches(12.33),
+                             Inches(0.32 + rh * len(MICE)))
+    shp.name = "Pupil check table"
+    t = shp.table
+    t.columns[0].width = Inches(w0)
+    for j in range(len(days)):
+        t.columns[j + 1].width = Inches(wd)
+    MS.style_cell(t.cell(0, 0), [[("Mouse", {"bold": True, "color": "FFFFFF"})]], NAVY, size=11)
+    for j, d in enumerate(days):
+        MS.style_cell(t.cell(0, j + 1), [[(f"Day {d}", {"bold": True, "color": "FFFFFF"})]], NAVY, size=11,
+                      align=PP_ALIGN.CENTER)
+    for i, (c, m) in enumerate(MICE, start=1):
+        t.rows[i].height = Inches(rh)
+        MS.style_cell(t.cell(i, 0), [[(f"{c} ", {"color": MUTED}), (m, {"bold": True})]], "FFFFFF", size=11)
+        for j, d in enumerate(days):
+            r = C[(C.day == d) & (C.cage == c) & (C.mouse == m)]
+            cell = t.cell(i, j + 1)
+            if r.empty:
+                MS.style_cell(cell, "-", "FFFFFF", size=pt, align=PP_ALIGN.CENTER)
+                continue
+            r = r.iloc[0]
+            if pd.isna(r.get("out_pct")):
+                MS.style_cell(cell, [[("no video", {"bold": True, "color": "555555"})],
+                                     [("behaviour only", {"size": pt - 2, "color": MUTED})]], "ECECEC", size=pt,
+                              align=PP_ALIGN.CENTER)
+                continue
+            v = r.verdict.lower()
+            st = {"ok": "green", "noisy": "yellow"}.get(v, "red")
+            eye = " · eye" if str(r.grade) == "whole_eye" else ""
+            MS.style_cell(cell, [[((v.upper() if v else "LOOK"), {"bold": True, "color": QC_TEXT[st]})],
+                                 [(f"out {r.out_pct:.1f} %{eye}", {"size": pt - 2, "color": TEXT})]],
+                          QC_FILL[st], size=pt, align=PP_ALIGN.CENTER)
+    vc = C[C.out_pct.notna()].verdict.str.lower().value_counts()
+    nv = int(C.out_pct.isna().sum())
+    MS.add_text(s, 0.5, 6.28, 12.3, 0.62,
+                [[(f"ok {int(vc.get('ok', 0))} · noisy {int(vc.get('noisy', 0))} · no video {nv}"
+                   + (f" · NOT LOOKED AT {int((C.out_pct.notna() & (C.verdict == '')).sum())}"
+                      if (C.out_pct.notna() & (C.verdict == "")).any() else ""), {"bold": True})],
+                 "out = frames the table fills from the neighbours: held (no pupil / refused jump) + jumps + odd size "
+                 "· whole eye (eye): no eye + off eye · pictures: analysis\\pupil_check\\dayN\\ · numbers: "
+                 f"pupil_check_{tag}.csv"], size=10, color=MUTED, name="Pupil check note")
+    MS.add_footer(s, foot)
+    for f in PCE.overview_files(days):
+        if f.exists():
+            MS.image_slide(prs, f, "Pupil check · one frame per session",
+                           "green circle = the pupil in the tables (9670f green2 day 5 = dark-contrast repair) · pink = "
+                           "whole eye (eye damage) · frame = the spread frame nearest the session's median size")
+    return C
+
+
+def pupil_appendix(prs, days, C):
+    """one slide per session picture of the given days (the user's 40 examples of 2026-11-18; default the last day)"""
+    for d in days:
+        for c, m in MICE:
+            f = PCE.OUT / f"day{d}" / f"day{d}_{c}_{m}.png"
+            if not f.exists():
+                continue
+            r = C[(C.day == d) & (C.cage == c) & (C.mouse == m)] if C is not None else pd.DataFrame()
+            v = str(r.verdict.iloc[0]).upper() if len(r) and str(r.verdict.iloc[0]) else ""
+            note = str(r.note.iloc[0]) if len(r) and str(r.note.iloc[0]) not in ("", "nan") else ""
+            title = f"Pupil check · day {d} · {c} {m}" + (f" · {v}" if v else "")
+            if len(r) and pd.notna(r.out_pct.iloc[0]):
+                note = f"out {r.out_pct.iloc[0]:.1f} % of frames · " + note
+            MS.image_slide(prs, f, title, note or "no pupil (see the picture)")
+
+
+def build(days, out: Path, pupil_days=None):
     tag = f"days{days[0]}-{days[-1]}" if len(days) > 1 else f"day{days[0]}"
     qf, iff = DAYS_DIR / f"qc_summary_{tag}.csv", DAYS_DIR / f"qc_issues_{tag}.csv"
     QS.main(["--days", *map(str, days)])        # refresh the QC picture / tables first (about 10 s)
@@ -329,14 +512,21 @@ def build(days, out: Path):
             dec.append([("Soon: ", {"bold": True}), (r.what, {})])
     box(s, 6.75, 2.8, 6.08, 3.0, "Needs your decision", dec or ["Nothing open."], "B42318", "Decision box", size=11)
     has_assays = (DAYS_DIR / f"day{N}" / f"assays_day{N}.csv").exists()
-    kA = 1 if has_assays else 0
-    MS.add_text(s, 0.5, 6.0, 12.3, 0.4, "Slides: 2 QC per session · " + ("3 assays (TI, TST, HOT) · " if has_assays else "")
-                + f"{3 + kA} data problems and fixes · {4 + kA} routine problems fixed · {5 + kA} where all plots are · "
-                f"{6 + kA}–{11 + kA} basic plots · {12 + kA} what to do better next", size=12, color=MUTED,
-                name="Contents")
+    # the contents line is filled in at the end, from the slides actually made (2026-11-18: more slides, which move
+    # with the assay slide, the overview pictures and the appendix)
+    contents = MS.add_text(s, 0.5, 5.95, 12.3, 0.8, "Slides:", size=12, color=MUTED, name="Contents")
     MS.add_footer(s, foot)
+    toc = []                                    # (first slide number, label) of every block of slides
 
-    # ---- 2 QC per session
+    def block(label):
+        toc.append((len(prs.slides) + 1, label))
+
+    # ---- 2 PR score per mouse and day (all days so far; added 2026-11-18)
+    block("PR per day")
+    pr_slide(prs, blank, days, foot)
+
+    # ---- 3 QC per session
+    block("QC per session")
     s = prs.slides.add_slide(blank)
     MS.add_title(s, "QC per session", "Each session vs the protocol, the Saleae and the camera")
     legend(s, 6.55, 1.0, [(QC_FILL["green"], QC_TEXT["green"], "all fine"),
@@ -375,15 +565,21 @@ def build(days, out: Path):
                           QC_FILL[st], size=big_pt, align=PP_ALIGN.CENTER)
     MS.add_text(s, 0.5, 6.55, 12.3, 0.45,
                 "R = rewards (Python = Saleae in every session) · PR = last ratio requirement (= rewards + 1 in a full "
-                f"910-s session, the previous cohort's PR) · flags are explained on slide {3 + kA} · the full picture with "
-                f"every note: analysis\\days\\qc_summary_{tag}.png", size=10, color=MUTED, name="QC note")
+                "910-s session, the previous cohort's PR) · flags are explained on the 'Data problems' slide · the full "
+                f"picture with every note: analysis\\days\\qc_summary_{tag}.png", size=10, color=MUTED, name="QC note")
     MS.add_footer(s, foot)
 
-    # ---- 2b assays of the day (TI, TST, HOT), when there are any
+    # ---- 3b assays of the day (TI, TST, HOT), when there are any
     if has_assays:
+        block("assays (TI, TST, HOT)")
         assays_slide(prs, blank, N, foot)
 
-    # ---- 3 data problems and what was done
+    # ---- 4 pupil check per session + overview picture(s) (added 2026-11-18)
+    block("pupil check")
+    PC = pupil_check_slides(prs, blank, days, foot)
+
+    # ---- 5 data problems and what was done
+    block("data problems and fixes")
     s = prs.slides.add_slide(blank)
     MS.add_title(s, "Data problems found and what was done",
                  f"From the QC of days {days[0]}–{N}; one row per kind of problem (sessions: day and detail)")
@@ -408,13 +604,25 @@ def build(days, out: Path):
         print(f"  !! slide 3 table may run off the slide (estimated {h:.1f} in)")
     MS.add_footer(s, f"Source: analysis\\days\\qc_issues_{tag}.csv (qc_summary.py) · {foot}")
 
-    # ---- 4 routine problems fixed
+    # ---- 6 routine problems fixed
+    block("routine problems fixed")
     s = prs.slides.add_slide(blank)
     MS.add_title(s, "Routine problems fixed (rig, files, software)",
                  "Problems in the way the days ran or were analysed, and what was done (newest last)")
     RL = MS.read_csv(DAYS_DIR / "routine_log.csv")
     if len(RL):
-        RL = RL[pd.to_numeric(RL.day, errors="coerce").isin(days)].tail(14)
+        RL = RL[pd.to_numeric(RL.day, errors="coerce").isin(days)]
+        # newest rows that fit above the footer (2026-11-18: long rows ran off the slide); the same height estimate
+        # as table()
+        wid, n_fit = [0.7, 0.45, 5.0, 4.98, 1.2], 0
+        for n in range(min(14, len(RL)), 0, -1):
+            hs = [max(0.27, 0.07 + 0.165 * max(MS.text_lines(str(v), w, 9.5) for v, w in
+                                                 zip((r.date, r.day, r.problem, r.done, r.status), wid)) * 0.95)
+                  for r in RL.tail(n).itertuples()]
+            if 0.32 + sum(hs) <= 5.4:
+                n_fit = n
+                break
+        RL = RL.tail(max(1, n_fit))
         rows = []
         for r in RL.itertuples():
             fill, col, lab = STATUS.get(str(r.status), STATUS["noted"])
@@ -425,7 +633,8 @@ def build(days, out: Path):
               "Routine table", size=9.5)
     MS.add_footer(s, f"Source: analysis\\days\\routine_log.csv · {foot}")
 
-    # ---- 5 where all plots are
+    # ---- 7 where all plots are
+    block("where all plots are")
     s = prs.slides.add_slide(blank)
     MS.add_title(s, "Where to find all plots and tables", f"All paths are inside {P}")
     rn = run.name if run else "run_###"
@@ -436,6 +645,7 @@ def build(days, out: Path):
          DAYS_DIR),
         ("PR table per day (valve, lock-out, licks, PR vs previous cohort)", "analysis\\days\\dayN\\pr_checks_dayN.txt",
          DAYS_DIR),
+        ("PR score of every mouse on every day (one table)", f"analysis\\days\\pr_table_{tag}.csv / .png", None),
         ("Session checks (one report per session)", "analysis\\session_checks\\dayN\\*_check.txt",
          P / "analysis" / "session_checks"),
         ("Across days, per mouse", "analysis\\figs_across_days\\  ·  analysis\\master_day_level.csv",
@@ -453,7 +663,9 @@ def build(days, out: Path):
         ("Whole eye (9669m black, 9670f black)", "analysis\\wholeeye\\  (review sheets: qc\\review_20261117\\ · "
                                                  "old vs new eye model: qc\\compare_black2_black3\\)",
          P / "analysis" / "wholeeye"),
-        ("One example frame per session", "analysis\\days\\summary_day1234_examples.png", None),
+        ("Pupil check per session (Claude's check, frames out)", "analysis\\pupil_check\\dayN\\dayN_<cage>_<mouse>.png"
+                                                                 f"  ·  pupil_check_{tag}.csv  ·  overview pictures",
+         P / "analysis" / "pupil_check"),
         ("Problem / next-step lists used in this deck", "analysis\\days\\routine_log.csv · next_steps.csv · "
                                                       "qc_open_issues.csv", None),
         ("These decks", "analysis\\ppt\\", P / "analysis" / "ppt"),
@@ -464,6 +676,7 @@ def build(days, out: Path):
                 "Previous-cohort": (P / "analysis" / "cohort_figs" / rn, "*/*.png"),
                 "Pupil QC": (P / "pupil_tst_teach", "day*/*/*/pupil_outputs_general/qc_sheet.png"),
                 "Whole eye": (P / "analysis" / "wholeeye", "**/*.png"),
+                "Pupil check": (P / "analysis" / "pupil_check", "day*/*.png"),
                 "These decks": (P / "analysis" / "ppt", "*.pptx")}
     rows = []
     for what, where, _ in places:
@@ -473,10 +686,11 @@ def build(days, out: Path):
             nfig = f"{len(list(spec[0].glob(spec[1])))} {spec[1].rsplit('.', 1)[-1]}"
         rows.append([(what, "FFFFFF", TEXT, True), (where, "FFFFFF", TEXT, False), (nfig, "FFFFFF", MUTED, False)])
     table(s, 0.5, 1.42, [3.9, 7.33, 1.1], ["What", "Where (inside the project)", "Files"], rows, "Folders table",
-          size=10)
+          size=10 if len(rows) <= 13 else 9.5)
     MS.add_footer(s, foot)
 
-    # ---- 6-10 basic plots
+    # ---- 8-13 basic plots
+    block("basic plots")
     across = P / "analysis" / "figs_across_days" / "across_days_metrics.png"
     if across.exists():
         MS.image_slide(prs, across, "Basic plots 1 · across days, per mouse",
@@ -515,7 +729,8 @@ def build(days, out: Path):
            f"Basic plots 6 · today (day {N}): licking and pupil around reward",
            "Mean ± SEM over rewards · pupil: 9669m black and 9670f black are the WHOLE EYE (eye damage), not the pupil")
 
-    # ---- 11 what to do better next
+    # ---- 14 what to do better next
+    block("what to do better next")
     s = prs.slides.add_slide(blank)
     MS.add_title(s, "What to do better next", "From the problems above · open items only (done items stay in "
                                               "analysis\\days\\next_steps.csv)")
@@ -523,11 +738,29 @@ def build(days, out: Path):
                                                                                  "557A9E"))):
         items = NS[(NS.who == who) & (NS.status != "done")] if len(NS) else NS
         paras = []
+        # smaller text when there are many open items, so the box holds them (2026-11-18: 9 items ran off the slide)
+        chars = sum(len(str(r.what)) + len(str(r.why)) for r in items.itertuples())
+        big = 12 if chars <= 900 else 10.5 if chars <= 1300 else 9.5 if chars <= 1700 else 8.5 if chars <= 2200 else 8
         for r in items.itertuples():
-            paras.append([(f"{r.what}", {"bold": True, "size": 12})])
-            paras.append([(f"why: {r.why}", {"size": 10, "color": MUTED})])
+            paras.append([(f"{r.what}", {"bold": True, "size": big})])
+            paras.append([(f"why: {r.why}", {"size": big - 2, "color": MUTED})])
         box(s, 0.5 + k * 6.25, 1.42, 6.08, 5.45, title, paras or ["Nothing open."], col, f"Next {who}", size=12)
     MS.add_footer(s, f"Source: analysis\\days\\next_steps.csv · {foot}")
+
+    # ---- appendix: the pupil-check picture of every session of pupil_days (default: the last day)
+    pdays = [d for d in (pupil_days or [N]) if d in days]
+    if pdays:
+        block(f"pupil pictures day{'s' if len(pdays) > 1 else ''} {pdays[0]}" +
+              (f"–{pdays[-1]}" if len(pdays) > 1 else "") + " (appendix)")
+        pupil_appendix(prs, pdays, PC)
+
+    # the contents line of slide 1
+    parts = []
+    for k, (start, label) in enumerate(toc):
+        end = (toc[k + 1][0] - 1) if k + 1 < len(toc) else len(prs.slides)
+        if end >= start:
+            parts.append((f"{start}" if end == start else f"{start}–{end}") + " " + label)
+    contents.text_frame.paragraphs[0].runs[0].text = "Slides: " + " · ".join(parts)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -542,6 +775,8 @@ def build(days, out: Path):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--days", type=int, nargs="+", help="default: every day in session_checks.csv")
+    ap.add_argument("--pupil-days", type=int, nargs="+",
+                    help="days whose per-session pupil-check pictures go in the appendix (default: the last day)")
     ap.add_argument("--out", type=Path)
     a = ap.parse_args(argv)
     if not a.days:
@@ -549,7 +784,7 @@ def main(argv=None):
                         encoding="utf-8-sig")
         a.days = sorted(S[S.cage.isin(QS.CAGES)].day.astype(int).unique())
     out = a.out or P / "analysis" / "ppt" / f"routine_day{a.days[-1]}_{datetime.now():%Y%m%d}.pptx"
-    build(a.days, out)
+    build(a.days, out, a.pupil_days)
     return 0
 
 

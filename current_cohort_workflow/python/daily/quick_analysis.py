@@ -437,6 +437,16 @@ def find_pupil(pupil_root: Path, day_folder: str, session: str):
             we = None
         if we is not None:
             return we
+        # dark-contrast repair (2026-11-18): a session approved in darkcontrast_sessions.csv (the package's pupil sat on
+        # another dark blob in part of the session; pupil_dark_contrast.py keeps the package where it is on the pupil and
+        # repairs only those frames) - the same repaired trace that Step 02 gets (concat_out_*_darkcontrast)
+        try:
+            import concat_choice as CC
+            dk = CC.darkcontrast_pupil_csv(d, pupil_root)
+        except Exception:   # noqa: BLE001
+            dk = None
+        if dk is not None:
+            return dk
         # best-effort pupil of a hard eye (grade best_effort; the user approved the session in besteffort_sessions.csv,
         # 2026-11-16): pupil_besteffort.py's trace instead of the package's
         if pupil_grade(pupil_root, day_folder)[0] == "best_effort":

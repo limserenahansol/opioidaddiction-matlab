@@ -237,10 +237,20 @@ def build(project: Path) -> pd.DataFrame:
         g = project / "analysis" / f"{stem}.csv"
         if g.exists():
             X.add(g, f"master_{stem}", "all", final="yes", note="rebuilt from the per-session files every day")
-    for pat, kind in (("qc_summary_days*.csv", "qc_summary"), ("qc_issues_days*.csv", "qc_issues")):
+    for pat, kind in (("qc_summary_days*.csv", "qc_summary"), ("qc_issues_days*.csv", "qc_issues"),
+                      ("pr_table_days*.csv", "pr_table")):          # pr_table: pr_table_days.py (2026-11-18)
         fs = sorted(days_dir.glob(pat), key=lambda x: int(re.findall(r"(\d+)\.csv$", x.name)[0]))
         for g in fs:
             X.add(g, kind, "all", final="yes" if g == fs[-1] else "no")
+    # pupil check (2026-11-18, pupil_check_examples.py): frames out of the pupil the tables use + Claude's verdicts
+    pc = project / "analysis" / "pupil_check"
+    fs = sorted(pc.glob("pupil_check_days*.csv"), key=lambda x: int(re.findall(r"(\d+)\.csv$", x.name)[0])) \
+        if pc.is_dir() else []
+    for g in fs:
+        X.add(g, "pupil_check", "all", final="yes" if g == fs[-1] else "no",
+              note="frames out per session (held, jumps, odd size / no eye, off eye) + Claude's check")
+    if (pc / "pupil_check_verdicts.csv").exists():
+        X.add(pc / "pupil_check_verdicts.csv", "pupil_check_verdicts", "all", note="Claude's check per session")
     for name, kind in (("qc_decisions.csv", "qc_decisions"), ("qc_open_issues.csv", "qc_open_issues"),
                        ("next_steps.csv", "next_steps"), ("routine_log.csv", "routine_log")):
         if (days_dir / name).exists():

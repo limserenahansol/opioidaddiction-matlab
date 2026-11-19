@@ -121,6 +121,22 @@ def decisions():
     return out
 
 
+def pupil_check_out():
+    """{(day, cage, mouse): % of frames out} from analysis/pupil_check/pupil_check_day*.csv (pupil_check_examples.py,
+    added 2026-11-18: held + jumps + odd size of the pupil the tables use; the newest file wins). Empty if none."""
+    out = {}
+    files = sorted((P / "analysis" / "pupil_check").glob("pupil_check_day*.csv"), key=lambda p: p.stat().st_mtime)
+    for f in files:
+        try:
+            X = pd.read_csv(f, dtype={"cage": str}, encoding="utf-8-sig")
+        except (OSError, ValueError):
+            continue
+        for r in X.itertuples():
+            if pd.notna(getattr(r, "out_pct", np.nan)):
+                out[(int(r.day), str(r.cage), str(r.mouse))] = float(r.out_pct)
+    return out
+
+
 def decided(keys, d, c, m, cat):
     """'decision (date)' if the user decided this flag for this session, else None"""
     for day, dec, when in keys.get("decisions", {}).get((str(c).lower(), str(m).lower(), cat), []):
@@ -243,12 +259,17 @@ def one_session(s, d, c, m, q, pr, keys):
                 flags.append("OFF EYE")
     elif g == "noisy":
         why = str(q.iloc[0].reason).replace("new package: ", "") if pd.notna(q.iloc[0].reason) else ""
-        F.append((1, "pupil_noisy", f"{100 * nb:.0f}% no pupil" if np.isfinite(nb) else "noisy",
+        po = keys.get("pupil_out", {}).get((int(d), str(c), str(m)))   # 2026-11-18: frames out of the table's pupil
+        short = f"{po:.0f}% out" if po is not None else (f"{100 * nb:.0f}% no pupil" if np.isfinite(nb) else "noisy")
+        F.append((1, "pupil_noisy", short,
                   f"pupil noisy (graded by eye): {textwrap.shorten(why, 120, placeholder=' ...')}"))
         flags.append("pupil noisy")
-        pupil_txt = f"pupil noisy, {100 * nb:.0f}% none" if np.isfinite(nb) else "pupil noisy"
+        pupil_txt = (f"pupil noisy, {po:.0f}% out" if po is not None else
+                     f"pupil noisy, {100 * nb:.0f}% none" if np.isfinite(nb) else "pupil noisy")
     elif g == "ok":
-        pupil_txt = f"pupil ok, {100 * nb:.0f}% none" if np.isfinite(nb) else "pupil ok"
+        po = keys.get("pupil_out", {}).get((int(d), str(c), str(m)))
+        pupil_txt = (f"pupil ok, {po:.0f}% out" if po is not None else
+                     f"pupil ok, {100 * nb:.0f}% none" if np.isfinite(nb) else "pupil ok")
     elif g == "-":
         pupil_txt = "pupil -"
     else:
@@ -278,7 +299,7 @@ def main(argv=None):
     Q = pd.read_csv(qf, dtype={"cage": str}) if qf.exists() else pd.DataFrame(columns=["day", "cage", "mouse"])
     keys = {"sync_fix": CC.approved_sessions(root, CC.LISTS[CC.SYNC]),
             "behavior_only": CC.approved_sessions(root, "behavioronly_sessions.csv"), "open": open_issues(),
-            "decisions": decisions()}
+            "decisions": decisions(), "pupil_out": pupil_check_out()}
     PRS = {}
     for d in days:
         f = P / "analysis" / "days" / f"day{d}" / f"pr_checks_day{d}.csv"
