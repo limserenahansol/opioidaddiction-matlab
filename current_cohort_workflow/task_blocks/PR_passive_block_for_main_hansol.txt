@@ -1,0 +1,145 @@
+# ============= PR + PASSIVE block for main_hansol.py (days 6-10; with REPLAY_SOURCE = "" it is the PR block) =============
+# How to use: in main_hansol.py, select the whole PR block (from "from experiments.ratio_tasks import FRLickTrial" to
+# its "exp.run()"), press Ctrl+/ to comment it out, and paste everything below in its place.
+# Before EVERY run set the two lines marked <-- , then Ctrl+S:
+#   ACTIVE mouse : REPLAY_SOURCE = ""                                    OUTPUT = "<cage><mouse>_prday<N>.jsonl"
+#   PASSIVE mouse: REPLAY_SOURCE = "<the active partner's log of today>"  OUTPUT = "<cage><mouse>_passiveday<N>.jsonl"
+# - ACTIVE : the same PR task as the PR block (valve only, start 1 +1, lock-out 0.2 s, stops by itself after 910 s).
+# - PASSIVE: replays the partner's log (LogReplayExperiment): the valve opens at the partner's reward times, with the
+#   same tone; licks are only recorded. It lasts as long as the partner's session. Run it AFTER that session ended.
+# - Morphine goes through the valve for both (decided 2026-11-16). The valve open time is set by the Arduino
+#   firmware (pr_fr_task REWARD_MS = 200), not here.
+# - Before a passive run the source log is checked, and the run STOPS (nothing starts, the port is not opened) when
+#   it is missing, is itself a passive log, has no experiment_end, or is not from today. REPLAY_ANYWAY = True lets
+#   the last two through on purpose (rare: replaying an older log on a catch-up day).
+# - n_trials must stay 1000000: 10000000000 makes the start-up hang (the log stays at 0 bytes).
+# Uses time, threading, PRINT_EVERY, SESSION_SECONDS, bank and ProgressiveRatioExperiment from the top of
+# main_hansol.py.
+import json
+import os
+from datetime import datetime
+from experiments.ratio_tasks import FRLickTrial, LogReplayExperiment
+FRLickTrial.REWARD_DURATION = 0.2     # PR lick lock-out after each reward (s) - keep 0.2
+
+REPLAY_SOURCE = ""                     # <-- "" = ACTIVE mouse; PASSIVE mouse: the partner's log of today
+OUTPUT = "9669mblack_prday6.jsonl"     # <-- change the name BEFORE each run, then Ctrl+S
+REPLAY_ANYWAY = False                  # True only on purpose (see above)
+
+
+class TimedProgressiveRatioExperiment(ProgressiveRatioExperiment):
+    """Same PR task, but the session stops by itself after SESSION_SECONDS
+    (a reward already in progress always finishes) and the elapsed time is printed."""
+    def make_trial(self, idx):
+        trial = super().make_trial(idx)
+        remaining = self.max_duration - (time.time() - self._start_time)
+        trial.RESPONSE_WINDOW = max(0.0, remaining)
+        return trial
+
+    def _clock(self):
+        el = int(time.time() - self._start_time) if self._start_time else 0
+        left = max(0, int(self.max_duration) - el)
+        return f"{el // 60:02d}:{el % 60:02d} elapsed / {left // 60:02d}:{left % 60:02d} left"
+
+    def trial_summary(self, idx, outcome):
+        print(f"[{self._clock()}] Trial {idx} summary: {outcome}")
+
+    def run(self):
+        done = threading.Event()
+        def ticker():
+            while not done.wait(PRINT_EVERY):
+                if self._start_time:
+                    print(f"[TIME] {self._clock()}")
+        threading.Thread(target=ticker, daemon=True).start()
+        try:
+            super().run()
+        finally:
+            done.set()
+            if self._start_time:
+                print(f"[TIME] session finished: {self._clock()}")
+
+
+def replay_clock(t0, total):
+    el = int(time.time() - t0) if t0 else 0
+    left = max(0, int(total) - el)
+    return f"{el // 60:02d}:{el % 60:02d} elapsed / {left // 60:02d}:{left % 60:02d} left"
+
+
+def check_replay_source(src, out):
+    """Stop before anything starts when the log to replay is wrong. Returns (rewards, length in s) of the source."""
+    if not os.path.isfile(src):
+        raise SystemExit(f"[REPLAY] STOP: '{src}' not found in {os.getcwd()}")
+    if os.path.abspath(src) == os.path.abspath(out):
+        raise SystemExit("[REPLAY] STOP: OUTPUT is the same file as REPLAY_SOURCE")
+    recs = []
+    with open(src, encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                try:
+                    recs.append(json.loads(line))
+                except ValueError:
+                    pass
+    meta = recs[0] if recs and recs[0].get("tag") == "meta" else None
+    if meta is None:
+        raise SystemExit(f"[REPLAY] STOP: '{src}' has no meta line (not a task log?)")
+    if "replay" in str(meta.get("paradigm", "")).lower():
+        raise SystemExit(f"[REPLAY] STOP: '{src}' is itself a passive (replay) log - use the ACTIVE partner's log")
+    n_rew = sum(r.get("tag") == "reward_cmd" for r in recs)
+    length = float(recs[-1].get("elapsed", 0.0))
+    started = datetime.fromisoformat(meta["t"])
+    problems = []
+    if not any(r.get("tag") == "experiment_end" for r in recs):
+        problems.append("it has no experiment_end (the partner's session is still running, or it crashed)")
+    if started.date() != datetime.now().date():
+        problems.append(f"it is from {started.date()}, not today")
+    print(f"[REPLAY] source {src}: started {started:%Y-%m-%d %H:%M}, {meta.get('paradigm')}, "
+          f"{n_rew} rewards, {length:.0f} s")
+    if problems and not REPLAY_ANYWAY:
+        raise SystemExit("[REPLAY] STOP: " + "; ".join(problems) + " - fix REPLAY_SOURCE "
+                         "(or set REPLAY_ANYWAY = True on purpose)")
+    for p in problems:
+        print(f"[REPLAY] WARNING (REPLAY_ANYWAY = True): {p}")
+    return n_rew, length
+
+
+if REPLAY_SOURCE:                                        # ---------------- PASSIVE mouse
+    if "passive" not in OUTPUT.lower():
+        raise SystemExit("[REPLAY] STOP: a passive run needs 'passive' in OUTPUT, e.g. 9669mgreen1_passiveday6.jsonl")
+    n_rew, src_len = check_replay_source(REPLAY_SOURCE, OUTPUT)
+    exp = LogReplayExperiment(
+        replay_log=REPLAY_SOURCE,
+        port="COM3",                    # Arduino: check list_ports.bat
+        cue_bank=bank,
+        output=OUTPUT,
+        cam_trigger=True,
+    )
+    print(f"[SESSION] PASSIVE: replay of {REPLAY_SOURCE} - {n_rew} valve rewards at the partner's times, "
+          f"about {src_len:.0f} s")
+    done = threading.Event()
+    def replay_ticker():
+        while not done.wait(PRINT_EVERY):
+            if exp._start_time:
+                print(f"[TIME] {replay_clock(exp._start_time, src_len)}")
+    threading.Thread(target=replay_ticker, daemon=True).start()
+    try:
+        exp.run()
+    finally:
+        done.set()
+        if exp._start_time:
+            print(f"[TIME] session finished: {replay_clock(exp._start_time, src_len)}")
+else:                                                    # ---------------- ACTIVE mouse (PR)
+    if "passive" in OUTPUT.lower():
+        raise SystemExit("[SESSION] STOP: OUTPUT says passive, but REPLAY_SOURCE is empty")
+    exp = TimedProgressiveRatioExperiment(
+        max_duration=SESSION_SECONDS,   # session ends at 15:10
+        port="COM3",                    # Arduino: check list_ports.bat
+        n_trials=1000000,               # NOT 10000000000 (that hangs at start)
+        start=1,
+        increment=1,
+        cue_bank=bank,
+        post_reward_delay=0,            # no extra delay: the lock-out is the 0.2 s above
+        output=OUTPUT,
+        cam_trigger=True,
+    )
+    print(f"[SESSION] PR start 1 +1, lick lock-out {FRLickTrial.REWARD_DURATION} s, valve only; "
+          f"stops by itself after {SESSION_SECONDS} s (15 min 10 s)")
+    exp.run()

@@ -84,6 +84,8 @@ CAT = {
     "filename": ("File name without the mouse", "Filed by start time (the only free mouse)", "noted"),
     "pupil_noisy": ("Pupil noisy: ≥ 10 % of frames out (spout / whiskers / reflections) or wrong spikes",
                     "Checked by eye on the pupil-check pictures; used in the tables, marked noisy", "noted"),
+    "pupil_pending": ("Pupil step not run yet for this day (light run right after the experiment)",
+                      "Runs next: eye boxes, the pupil package and the whole eye, then the pupil check", "noted"),
 }
 SHOW_SHORT = {"frames", "frames_open", "length", "off_eye", "off_eye_kept", "licks_extra", "lick_start", "lick_valve_close",
               "lick_late", "lick_unknown", "pupil_noisy", "rewards", "filename", "check_open"}
@@ -265,18 +267,17 @@ def _blue(v):
     return "".join(f"{int(round(x + (y - x) * max(0.0, min(1.0, v)))):02X}" for x, y in zip(a, b))
 
 
-def pr_slide(prs, blank, days, foot):
+def pr_slide(prs, blank, days, foot, Tb):
     """PR score of every mouse on every day so far (added 2026-11-18; user: "all days' PR score table show me them";
-    the user's order after an experiment: PR and QC first). tools\\pr_table_days.py: PR = pr_RL_full of
+    the user's order after an experiment: PR and QC first). Tb = pr_table_days.table(days): PR = pr_RL_full of
     pr_checks_dayN.csv (last requirement = rewards + 1 in a full 910-s session); FR days = rewards in the first
-    15 min 10 s; rewards Python = Saleae per session; the previous cohort's PR of the day (first 910 s)."""
-    PT.main(["--days", *map(str, days)])        # refresh analysis\\days\\pr_table_days*.csv/.png (a few s)
-    Tb = PT.table(days)
+    15 min 10 s; days 6-10: a passive mouse replays its active partner's log (no PR of its own; its rewards are
+    compared with the partner's); rewards Python = Saleae per session; the previous cohort's PR (first 910 s)."""
     s = prs.slides.add_slide(blank)
     MS.add_title(s, "PR score per mouse and day",
                  "PR = last ratio requirement = rewards + 1 (full 910-s session; the previous cohort's PR) · FR days: "
-                 "rewards in the first 15 min 10 s")
-    tasks = {d: (Tb[Tb.day == d].task.mode().iloc[0] if (Tb.day == d).any() else "") for d in days}
+                 "rewards in the first 15 min 10 s · passive = replay of the partner")
+    tasks = {d: PT.day_type(Tb, d) for d in days}
     two = len(days) <= 8
     w0, w1 = 1.6, 0.95
     wd = (12.33 - w0 - w1) / len(days)
@@ -312,8 +313,16 @@ def pr_slide(prs, blank, days, foot):
             if r.task == "PR":
                 lines = [[(f"{r.pr:.0f}", {"bold": True})]]
                 if two:
-                    lines.append([(f"rewards {r.rewards_python}{flag}", {"size": small, "color": MUTED})])
+                    lines.append([(f"rewards {r.rewards_python:.0f}{flag}", {"size": small, "color": MUTED})])
                 MS.style_cell(cell, lines, _blue((r.pr - lo) / max(1e-6, hi - lo)), size=big, align=PP_ALIGN.CENTER)
+            elif r.task == "PASSIVE":
+                same = r.replay_match is True or r.replay_match == 1
+                lines = [[(f"P · R {r.rewards_python:.0f}", {})]]
+                if two:
+                    lines.append([(f"replay of {PT.partner_of(r.replay_source)}"
+                                   + (" (=)" if same else " (≠ partner!)") + flag,
+                                   {"size": small, "color": MUTED if same else "B42318"})])
+                MS.style_cell(cell, lines, "ECE8F8" if same else QC_FILL["red"], size=big, align=PP_ALIGN.CENTER)
             else:
                 lines = [[(f"R {r.rewards_910s:.0f}", {})]]
                 if two:
@@ -329,9 +338,11 @@ def pr_slide(prs, blank, days, foot):
         for j, d in enumerate(days):
             g = Tb[Tb.day == d]
             if k == 0:
-                x = g.pr.dropna() if tasks[d] == "PR" else g.rewards_910s.dropna()
-                pre = "" if tasks[d] == "PR" else "R "
-                txt = [[(f"{pre}{x.median():g}", {"bold": True})], [(f"{x.min():.0f}–{x.max():.0f}",
+                is_pr = tasks[d].startswith("PR")
+                x = g.pr.dropna() if is_pr else g.rewards_910s.dropna()
+                pre = "" if is_pr else "R "
+                act = " (active)" if tasks[d] == "PR + passive" else ""
+                txt = [[(f"{pre}{x.median():g}", {"bold": True})], [(f"{x.min():.0f}–{x.max():.0f}{act}",
                                                                       {"size": small, "color": MUTED})]] if len(x) else "-"
             else:
                 pm = g.prev_pr_median.dropna()
@@ -343,9 +354,12 @@ def pr_slide(prs, blank, days, foot):
                           align=PP_ALIGN.CENTER)
     done = Tb[Tb.task != "missing"]
     n_ok = int(done.rewards_match.astype(bool).sum())
+    pas = done[done.task == "PASSIVE"]
+    p_txt = (f" · passive rewards = the partner's in {int((pas.replay_match == True).sum())}/{len(pas)}"  # noqa: E712
+             if len(pas) else "")
     MS.add_text(s, 0.5, 6.42, 12.3, 0.5,
-                f"Rewards Python = Saleae in {n_ok}/{len(done)} sessions · previous cohort = reference only (training "
-                "and valve differ) · table and picture: analysis\\days\\pr_table_" +
+                f"Rewards Python = Saleae in {n_ok}/{len(done)} sessions{p_txt} · previous cohort = reference only "
+                "(training and valve differ) · table and picture: analysis\\days\\pr_table_" +
                 (f"days{days[0]}-{days[-1]}" if len(days) > 1 else f"day{days[0]}") + ".csv / .png",
                 size=10, color=MUTED, name="PR note")
     MS.add_footer(s, foot)
@@ -391,9 +405,10 @@ def pupil_check_slides(prs, blank, days, foot):
                 continue
             r = r.iloc[0]
             if pd.isna(r.get("out_pct")):
-                MS.style_cell(cell, [[("no video", {"bold": True, "color": "555555"})],
-                                     [("behaviour only", {"size": pt - 2, "color": MUTED})]], "ECECEC", size=pt,
-                              align=PP_ALIGN.CENTER)
+                novid = "no video" in str(r.get("source", ""))
+                MS.style_cell(cell, [[("no video" if novid else "not run yet", {"bold": True, "color": "555555"})],
+                                     [("behaviour only" if novid else "pupil step", {"size": pt - 2, "color": MUTED})]],
+                              "ECECEC", size=pt, align=PP_ALIGN.CENTER)
                 continue
             v = r.verdict.lower()
             st = {"ok": "green", "noisy": "yellow"}.get(v, "red")
@@ -445,6 +460,8 @@ def build(days, out: Path, pupil_days=None):
     S = S[S.cage.isin(QS.CAGES) & S.day.isin(days)].sort_values("checked_at").drop_duplicates(
         ["day", "cage", "mouse"], keep="last")
     PRT = pr_table(days)
+    PT.main(["--days", *map(str, days)])        # refresh analysis\\days\\pr_table_days*.csv/.png (a few s)
+    PTb = PT.table(days)                        # one row per mouse and day: PR / passive / FR (2026-11-18)
     run = newest_run()
     cfd = cohort_dir(run)
     N, made = days[-1], datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -474,9 +491,17 @@ def build(days, out: Path, pupil_days=None):
     prd = [d for d in days if d in PRT and PRT[d].pr_RL_full.notna().any()]
     if N in prd:
         X = PRT[N]
+        pas_n = PTb[(PTb.day == N) & (PTb.task == "PASSIVE")]
+        act = " (active mice)" if len(pas_n) else ""
         lines.append([("PR (last requirement): ", {"bold": True}),
-                      (f"median {X.pr_RL_full.median():g}, range {X.pr_RL_full.min():.0f}–{X.pr_RL_full.max():.0f}", {})])
-        lines.append([("Rewards: ", {"bold": True}), (f"median {X.rewards_python.median():g}", {})])
+                      (f"median {X.pr_RL_full.median():g}, range {X.pr_RL_full.min():.0f}–{X.pr_RL_full.max():.0f}"
+                       + act, {})])
+        lines.append([("Rewards: ", {"bold": True}),
+                      (f"median {X[X.pr_RL_full.notna()].rewards_python.median():g}{act}", {})])
+        if len(pas_n):                          # days 6-10: the passive replays
+            nm = int((pas_n.replay_match == True).sum())  # noqa: E712
+            lines.append([("Passive: ", {"bold": True}),
+                          (f"{len(pas_n)} replays; rewards = the partner's in {nm}/{len(pas_n)}", {})])
         if len(prd) > 1:
             Y = PRT[prd[-2]]
             m = X.merge(Y[["cage", "color", "pr_RL_full"]], on=["cage", "color"], suffixes=("", "_prev"))
@@ -523,7 +548,7 @@ def build(days, out: Path, pupil_days=None):
 
     # ---- 2 PR score per mouse and day (all days so far; added 2026-11-18)
     block("PR per day")
-    pr_slide(prs, blank, days, foot)
+    pr_slide(prs, blank, days, foot, PTb)
 
     # ---- 3 QC per session
     block("QC per session")
@@ -544,7 +569,8 @@ def build(days, out: Path, pupil_days=None):
         t.columns[j + 1].width = Inches(wd)
     MS.style_cell(t.cell(0, 0), [[("Mouse", {"bold": True, "color": "FFFFFF"})]], NAVY, size=11)
     for j, d in enumerate(days):
-        task = "PR" if d in prd else "FR"
+        task = PT.day_type(PTb, d, short=True) or ("PR" if d in prd else "FR")
+        task = "FR" if task.startswith("FR") else task
         MS.style_cell(t.cell(0, j + 1), [[(f"Day {d} · {task}", {"bold": True, "color": "FFFFFF"})]], NAVY, size=11,
                       align=PP_ALIGN.CENTER)
     for i, (c, m) in enumerate(MICE, start=1):
@@ -557,8 +583,9 @@ def build(days, out: Path, pupil_days=None):
                 continue
             r = r.iloc[0]
             st, fl = r["status"], str(r["flags"])        # r.flags would be the pandas Series' own flags
+            is_p = ((PTb.day == d) & (PTb.cage == c) & (PTb.mouse == m) & (PTb.task == "PASSIVE")).any()
             l1 = ((f"R {int(r['rewards'])}" if pd.notna(r["rewards"]) else "R -")
-                  + (f" · PR {int(r['pr'])}" if pd.notna(r["pr"]) else ""))
+                  + (f" · PR {int(r['pr'])}" if pd.notna(r["pr"]) else "") + (" · passive" if is_p else ""))
             l2 = fl if fl not in ("", "nan") else "all fine"
             MS.style_cell(t.cell(i, j + 1), [[(l1, {"bold": True, "color": QC_TEXT[st]})],
                                              [(l2, {"size": big_pt - 2, "color": TEXT})]],
@@ -701,9 +728,13 @@ def build(days, out: Path, pupil_days=None):
         if N in prd and len(prd) > 1:
             note = (f"day {N} median {PRT[N].pr_RL_full.median():g} (day {prd[-2]}: "
                     f"{PRT[prd[-2]].pr_RL_full.median():g}) · ")
+        man = MS.read_csv(P / "cohort_manifest.csv")
+        grp_set = len(man) and "group" in man.columns and man.group.astype(str).str.strip().isin(
+            ["Active", "Passive"]).any()
+        gtxt = ("Active / Passive = the groups in cohort_manifest.csv (your pairs 11-16, groups 11-18) · " if grp_set
+                else "groups are not set yet, so every mouse shows as 'Active' · ")
         MS.image_slide(prs, cfd / "PR01_daily_PR_spaghetti.png", "Basic plots 2 · PR per day (previous cohort's PR01)",
-                       note + "groups are not set yet, so every mouse shows as 'Active' (pairs before day 6) · "
-                              f"from Step 02 {rn}")
+                       note + gtxt + f"from Step 02 {rn}")
     tj, pu6 = (cfd / "TJ02_lick_density_vs_PR_level.png", cfd / "PU06_reward_locked_pupil.png") if cfd else (None, None)
     if tj is not None and (tj.exists() or pu6.exists()):
         s = prs.slides.add_slide(blank)

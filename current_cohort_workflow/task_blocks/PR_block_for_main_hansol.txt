@@ -1,0 +1,62 @@
+# ===================== PR block for main_hansol.py (days 3-5 and later PR days) =====================
+# How to use: in main_hansol.py, comment out the FR block (from "exp = TimedMicroFixedRatioExperiment(" to its
+# "exp.run()", select the lines and press Ctrl+/), paste everything below in its place, change the output name,
+# then Ctrl+S before every run.
+#
+# - Valve only (no pump). PR start 1, +1.
+# - Lick lock-out after each reward = 0.2 s (as in the previous cohort; licks while it runs are logged valid=False).
+# - Stops by itself after SESSION_SECONDS (910 s = 15 min 10 s). A reward in progress always finishes.
+# - The valve open time is set by the Arduino firmware (pr_fr_task REWARD_MS = 200), not here.
+# - n_trials must stay 1000000: 10000000000 makes the start-up hang (the log stays at 0 bytes).
+# Uses time, threading, PRINT_EVERY, SESSION_SECONDS, bank and ProgressiveRatioExperiment from the top of
+# main_hansol.py.
+from experiments.ratio_tasks import FRLickTrial
+FRLickTrial.REWARD_DURATION = 0.2     # PR lick lock-out after each reward (s) - keep 0.2
+
+
+class TimedProgressiveRatioExperiment(ProgressiveRatioExperiment):
+    """Same PR task, but the session stops by itself after SESSION_SECONDS
+    (a reward already in progress always finishes) and the elapsed time is printed."""
+    def make_trial(self, idx):
+        trial = super().make_trial(idx)
+        remaining = self.max_duration - (time.time() - self._start_time)
+        trial.RESPONSE_WINDOW = max(0.0, remaining)
+        return trial
+
+    def _clock(self):
+        el = int(time.time() - self._start_time) if self._start_time else 0
+        left = max(0, int(self.max_duration) - el)
+        return f"{el // 60:02d}:{el % 60:02d} elapsed / {left // 60:02d}:{left % 60:02d} left"
+
+    def trial_summary(self, idx, outcome):
+        print(f"[{self._clock()}] Trial {idx} summary: {outcome}")
+
+    def run(self):
+        done = threading.Event()
+        def ticker():
+            while not done.wait(PRINT_EVERY):
+                if self._start_time:
+                    print(f"[TIME] {self._clock()}")
+        threading.Thread(target=ticker, daemon=True).start()
+        try:
+            super().run()
+        finally:
+            done.set()
+            if self._start_time:
+                print(f"[TIME] session finished: {self._clock()}")
+
+
+exp = TimedProgressiveRatioExperiment(
+    max_duration=SESSION_SECONDS,   # session ends at 15:10
+    port="COM3",                    # Arduino: check list_ports.bat
+    n_trials=1000000,               # NOT 10000000000 (that hangs at start)
+    start=1,
+    increment=1,
+    cue_bank=bank,
+    post_reward_delay=0,            # no extra delay: the lock-out is the 0.2 s above
+    output="9669mblack_prday3.jsonl",   # <-- change the name BEFORE each run, then Ctrl+S
+    cam_trigger=True,
+)
+print(f"[SESSION] PR start 1 +1, lick lock-out {FRLickTrial.REWARD_DURATION} s, valve only; "
+      f"stops by itself after {SESSION_SECONDS} s (15 min 10 s)")
+exp.run()

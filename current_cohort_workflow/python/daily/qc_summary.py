@@ -238,8 +238,18 @@ def one_session(s, d, c, m, q, pr, keys):
             flags.append(it.upper())
     # pupil
     g = str(q.iloc[0].grade) if len(q) else ("-" if not has_video else "missing")
+    # 2026-11-18: right after an experiment the light run makes the QC before the pupil step; a day with no pupil
+    # grade at all is "not run yet" (yellow), not 8 red sessions (day 5 showed 8 reds). Missing in a day that has
+    # other grades stays red.
+    if g == "missing" and int(d) not in keys.get("pupil_days", set()):
+        g = "pending"
     nb = float(q.iloc[0].no_blob) if len(q) and pd.notna(q.iloc[0].no_blob) else np.nan
-    if g == "whole_eye":
+    if g == "pending":
+        F.append((1, "pupil_pending", "pupil not run yet",
+                  "pupil: the package / whole-eye step has not run for this day yet (it runs after the PR + QC report)"))
+        flags.append("pupil not run yet")
+        pupil_txt = "pupil not run yet"
+    elif g == "whole_eye":
         F.append((1, "whole_eye", "whole eye", "whole eye instead of the pupil (eye damage; approved in wholeeye_mice.csv)"))
         flags.append("whole eye")
         pupil_txt = "whole eye (approved)"
@@ -299,7 +309,8 @@ def main(argv=None):
     Q = pd.read_csv(qf, dtype={"cage": str}) if qf.exists() else pd.DataFrame(columns=["day", "cage", "mouse"])
     keys = {"sync_fix": CC.approved_sessions(root, CC.LISTS[CC.SYNC]),
             "behavior_only": CC.approved_sessions(root, "behavioronly_sessions.csv"), "open": open_issues(),
-            "decisions": decisions(), "pupil_out": pupil_check_out()}
+            "decisions": decisions(), "pupil_out": pupil_check_out(),
+            "pupil_days": set(pd.to_numeric(Q["day"], errors="coerce").dropna().astype(int)) if len(Q) else set()}
     PRS = {}
     for d in days:
         f = P / "analysis" / "days" / f"day{d}" / f"pr_checks_day{d}.csv"

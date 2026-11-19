@@ -1009,7 +1009,10 @@ CSV_COLS = ["day", "cage", "mouse", "label", "session", "log_date", "log_start",
             "rewards_saleae", "experiment_end", "session_s", "session_expected_s", "session_tol_s", "auto_stop_s",
             "stop", "last_trial", "last_trial_end", "capture", "camera_first_s", "camera_last_s", "camera_s",
             "video_frames", "camera_pulses", "camera_pulses_capture", "last_reward_s", "final_gap_s",
-            "saleae_licks_last60s"] + PR_COLS + ["n_check", "checks", "infos", "python_log"]
+            "saleae_licks_last60s"] + PR_COLS + ["n_check", "checks", "infos", "python_log",
+                                                 # days 6-10 (2026-11-18): the passive replay's source and its rewards,
+                                                 # so the PR table can show "passive rewards = the partner's"
+                                                 "replay_source", "replay_source_rewards"]
 
 # table cells: (key, header); the .txt and the figure show two tables
 SHOW = [("mouse", "mouse"), ("task", "task"), ("req", "req\nstart+step"), ("pump", "pump\nruns"),

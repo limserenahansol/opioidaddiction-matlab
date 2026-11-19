@@ -62,8 +62,17 @@ def table(days):
             s = SM[(SM.day == d) & (SM.mouse == f"{c}_{m}")]
             task = str(s.task.iloc[-1]) if len(s) else ""
             is_pr = pd.notna(r.get("pr_RL_full"))
+            # days 6-10 (2026-11-18): a passive mouse replays its active partner's log of the day (no PR of its own)
+            is_passive = "replay" in str(r.get("paradigm", "")).lower()
+            src = str(r.get("replay_source", "") or "") if is_passive else ""
+            n_src = r.get("replay_source_rewards", np.nan) if is_passive else np.nan
             rows.append(dict(
-                base, task="PR" if is_pr else (task or str(r.get("paradigm", ""))), session=r.get("session", ""),
+                base, task="PR" if is_pr else ("PASSIVE" if is_passive else (task or str(r.get("paradigm", "")))),
+                session=r.get("session", ""),
+                replay_source="" if src in ("", "nan") else src,
+                replay_source_rewards=float(n_src) if pd.notna(n_src) else np.nan,
+                replay_match=bool(pd.notna(n_src) and int(r.rewards_python) == int(float(n_src))) if is_passive
+                else np.nan,
                 pr=float(r.pr_RL_full) if is_pr else np.nan,
                 pr_910s=float(r.pr_RL_910s) if pd.notna(r.get("pr_RL_910s")) else np.nan,
                 rewards_910s=float(s.rewards.iloc[-1]) if len(s) else np.nan,
@@ -77,6 +86,29 @@ def table(days):
                 prev_pr_min=r.get("prev_RL910_min", r.get("prev_RL_min", np.nan)),
                 prev_pr_max=r.get("prev_RL910_max", r.get("prev_RL_max", np.nan)), prev_pr_n=r.get("prev_RL_n", np.nan)))
     return pd.DataFrame(rows)
+
+
+def day_type(Tb: pd.DataFrame, d, short=False):
+    """'PR', 'PR + passive' (days 6-10), 'passive', or the FR task of the day ('FR3', 'FR5')"""
+    t = set(Tb[(Tb.day == d) & (Tb.task != "missing")].task)
+    if "PR" in t and "PASSIVE" in t:
+        return "PR+P" if short else "PR + passive"
+    if "PR" in t:
+        return "PR"
+    if "PASSIVE" in t:
+        return "P" if short else "passive"
+    fr = sorted(x for x in t if x)
+    return fr[0] if fr else ""
+
+
+def partner_of(src: str):
+    """'9670fgreen2_prday6.jsonl' -> '9670f green2' (the active partner a passive log replayed)"""
+    import re
+    m = re.match(r"(\d{4}[mf])_?(green1|green2|green|white|black)", Path(str(src)).name.lower())
+    if not m:
+        return Path(str(src)).stem
+    mouse = "green1" if m.group(2) == "green" else m.group(2)
+    return f"{m.group(1)} {mouse}"
 
 
 def figure(Tb: pd.DataFrame, days, out: Path):
@@ -106,9 +138,7 @@ def figure(Tb: pd.DataFrame, days, out: Path):
     ax.text(0.0, -0.45, "PR score per mouse and day  ·  PR = last ratio requirement = rewards + 1  ·  FR days: rewards "
             "in the first 15 min 10 s", fontsize=12, fontweight="bold", color="#1f3a5f", va="center")
     for j, d in enumerate(days):
-        t = Tb[(Tb.day == d)].task.mode()
-        lab = f"day {d} · {t.iloc[0] if len(t) else ''}"
-        cell(j + 1, 0, lab, face="#1f3a5f", bold=True, col="white")
+        cell(j + 1, 0, f"day {d} · {day_type(Tb, d)}", face="#1f3a5f", bold=True, col="white")
     cell(0, 0, "mouse (group)", face="#1f3a5f", bold=True, col="white")
     for i, (c, m) in enumerate(MICE, start=1):
         g = Tb[(Tb.cage == c) & (Tb.mouse == m)]
@@ -123,8 +153,13 @@ def figure(Tb: pd.DataFrame, days, out: Path):
             ok = "Python = Saleae" if r.rewards_match else "Python ≠ Saleae!"
             if r.task == "PR":
                 v = (r.pr - lo) / max(1e-6, hi - lo)
-                cell(j + 1, i, f"{r.pr:.0f}", sub=f"rewards {r.rewards_python} · {ok}",
+                cell(j + 1, i, f"{r.pr:.0f}", sub=f"rewards {r.rewards_python:.0f} · {ok}",
                      face=matplotlib.colors.to_hex(cmap(0.12 + 0.5 * v)), bold=True)
+            elif r.task == "PASSIVE":
+                same = ("= partner" if r.replay_match is True or r.replay_match == 1 else
+                        "partner ?" if pd.isna(r.replay_source_rewards) else "≠ partner!")
+                cell(j + 1, i, f"passive · R {r.rewards_python:.0f}", sub=f"replay of {partner_of(r.replay_source)} · {same}",
+                     face="#ece8f8", sub2=ok if not r.rewards_match else "")
             else:
                 full = "" if not (r.session_s > 930) else f"untimed {r.session_s / 60:.0f}-min run: {r.rewards_python} in all"
                 cell(j + 1, i, f"R {r.rewards_910s:.0f}", sub=f"{r.task} · {ok}", face="#eef1f5", sub2=full)
@@ -136,7 +171,8 @@ def figure(Tb: pd.DataFrame, days, out: Path):
         g = Tb[Tb.day == d]
         if (g.task == "PR").any():
             x = g.pr.dropna()
-            cell(j + 1, i, f"{x.median():g}", sub=f"{x.min():.0f}-{x.max():.0f}", face="#fff6db", bold=True)
+            act = " (active)" if (g.task == "PASSIVE").any() else ""
+            cell(j + 1, i, f"{x.median():g}", sub=f"{x.min():.0f}-{x.max():.0f}{act}", face="#fff6db", bold=True)
             pm = g.prev_pr_median.dropna()
             if len(pm):
                 cell(j + 1, i + 1, f"{float(pm.iloc[0]):g}", sub=f"{float(g.prev_pr_min.dropna().iloc[0]):.0f}-"
@@ -165,15 +201,21 @@ def main(argv=None):
     Tb.to_csv(out_csv, index=False, encoding="utf-8-sig")
     figure(Tb, days, out_png)
     bad = Tb[(Tb.task != "missing") & ~Tb.rewards_match.fillna(False).astype(bool)]
+    pas = Tb[Tb.task == "PASSIVE"]
+    bad_rep = pas[pas.replay_match != True]                    # noqa: E712  (NaN = source not found)
     print(f"PR table -> {out_csv}\n            {out_png}")
     for d in days:
         g = Tb[(Tb.day == d) & (Tb.task == "PR")]
         if len(g):
-            print(f"  day {d}: PR median {g.pr.median():g} (range {g.pr.min():.0f}-{g.pr.max():.0f})")
+            print(f"  day {d}: PR median {g.pr.median():g} (range {g.pr.min():.0f}-{g.pr.max():.0f})"
+                  + (" - active mice" if ((Tb.day == d) & (Tb.task == "PASSIVE")).any() else ""))
     if len(bad):
         print(f"  !! rewards Python != Saleae in {len(bad)} session(s): "
               + ", ".join(f"d{r.day} {r.cage} {r.mouse}" for r in bad.itertuples()))
-    return 1 if len(bad) else 0
+    if len(bad_rep):
+        print(f"  !! passive rewards != the replayed partner's log (or the log not found) in {len(bad_rep)} session(s): "
+              + ", ".join(f"d{r.day} {r.cage} {r.mouse}" for r in bad_rep.itertuples()))
+    return 1 if len(bad) or len(bad_rep) else 0
 
 
 if __name__ == "__main__":

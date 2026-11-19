@@ -523,6 +523,10 @@ def main(argv=None):
         (none_png(s) if s["kind"] == "none" else session_png(s, frames.get((d, c, m), {}), V)).save(o)
     tag = f"days{a.days[0]}-{a.days[-1]}" if len(a.days) > 1 else f"day{a.days[0]}"
     T_ = pd.DataFrame(rows)
+    for c in ("n_frames", "median_px", "out_n", "out_pct", "worst_minute_out_pct", "out_first910s_pct", "held_n",
+              "jump_n", "odd_n", "notfound_n", "offeye_n"):     # same columns when no session has a pupil yet
+        if c not in T_:
+            T_[c] = np.nan
     T_.to_csv(OUT / f"pupil_check_{tag}.csv", index=False, encoding="utf-8-sig")
     outs = []
     for i in range(0, len(a.days), OVERVIEW_DAYS):          # one overview picture per 6 days (it stays readable)

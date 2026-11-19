@@ -1,0 +1,45 @@
+6-10일 실행표 (패시브 시작: 6일 = 2026-11-19)          만든 날 2026-11-18 (Claude)
+===========================================================================================
+
+[0] 첫 마우스 전에, 한 번만
+  1) main_hansol.py 에서
+       105번 줄   FRLickTrial.REWARD_DURATION = 0.22      부터
+       153번 줄   exp.run()                               (그 아래 첫 exp.run) 까지
+     를 선택하고, tools\PR_passive_block_for_main_hansol_v2.txt 의 내용 전체로 바꿔 붙여 넣기 -> Ctrl+S.
+     위쪽(import, SESSION_SECONDS, bank, FR class)과 아래쪽은 그대로 둡니다.
+     붙여 넣은 결과 = tools\main_hansol_day6_ready.py (이 파일로 가짜 Arduino 시험 45/45 통과, 2026-11-18).
+  2) lock-out 은 0.22 s (3-5일과 같음). 블록 첫 줄: FRLickTrial.REWARD_DURATION = 0.22
+  3) 아침 밸브 시험: REPLAY_SOURCE = "" , OUTPUT = "test_day6.jsonl" -> 실행 -> SESSION_CHECK.bat
+  4) 모르핀: Active, Passive 모두 밸브 라인 (11-16 결정). 펌프(injector)는 쓰지 않습니다.
+     ※ main_hansol.py 아래쪽의 주석 블록 MicroLogReplayExperiment 는 예전 cohort(Mac 포트 + 펌프 포트)용 -
+       쓰지 마세요. 6일 블록의 LogReplayExperiment 가 같은 재생을 밸브만으로 합니다.
+
+[1] 마우스마다: 아래 두 줄만 바꾸고 Ctrl+S -> 실행
+    (IC Capture 영상, Logic 캡처도 OUTPUT 과 같은 이름으로)
+
+  순서  마우스         역할     REPLAY_SOURCE = ...              OUTPUT = ...
+  ----  -------------  -------  -------------------------------  ---------------------------------
+   1    9670f green2   Active   ""                               "9670fgreen2_prday6.jsonl"
+   2    9670f green1   Passive  "9670fgreen2_prday6.jsonl"       "9670fgreen1_passiveday6.jsonl"
+   3    9670f white    Active   ""                               "9670fwhite_prday6.jsonl"
+   4    9670f black    Passive  "9670fwhite_prday6.jsonl"        "9670fblack_passiveday6.jsonl"
+   5    9669m green2   Active   ""                               "9669mgreen2_prday6.jsonl"
+   6    9669m white    Passive  "9669mgreen2_prday6.jsonl"       "9669mwhite_passiveday6.jsonl"
+   7    9669m black    Active   ""                               "9669mblack_prday6.jsonl"
+   8    9669m green1   Passive  "9669mblack_prday6.jsonl"        "9669mgreen1_passiveday6.jsonl"
+
+  짝 (cohort_manifest.csv): 9670f green2->green1, 9670f white->black, 9669m green2->white, 9669m black->green1
+  7-10일: 이름의 6만 그날 숫자로 (prday7, passiveday7 ...).
+
+  - 순서는 바꿔도 됩니다. 단 Passive 는 짝 Active 가 끝난 뒤에만 - 아니면 블록이 시작하지 않습니다.
+  - Active 를 다시 돌려 이름이 _1 이 됐으면 (예: 9670fgreen2_prday6_1.jsonl), REPLAY_SOURCE 는 끝까지 돈 그 파일.
+  - Passive 시작 화면:  [REPLAY] source 9670fgreen2_prday6.jsonl: started ..., N rewards, 910 s  -> 정상
+                        [REPLAY] STOP: ...  -> 아무것도 시작 안 됨 (포트도 안 열림). 이유를 고치고 다시 실행.
+  - Passive 는 짝의 세션 길이만큼 (약 15분 10초) 돌고 스스로 끝납니다. 핥기는 기록만 되고 보상과 무관합니다.
+
+[2] 세션마다 끝나면 SESSION_CHECK.bat
+    Passive 는 원본 로그, 짝 (manifest), 보상 수, 보상 시각 (0.5 s 이내) 까지 확인합니다.
+
+[3] 꼬리 담그기 (TI) 잠복기: 보내 주시면 기록합니다 (5일부터 매일).
+
+[4] 모두 끝나면 "실험 끝" 이라고 알려 주세요 -> PR 표 + QC 먼저, 그 다음 동공과 PPT.
