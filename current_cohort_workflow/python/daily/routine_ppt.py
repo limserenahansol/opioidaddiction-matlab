@@ -300,7 +300,8 @@ def pr_slide(prs, blank, days, foot, Tb):
     s = prs.slides.add_slide(blank)
     MS.add_title(s, "PR score per mouse and day",
                  "PR = last ratio requirement = rewards + 1 (full 910-s session; the previous cohort's PR) · FR days: "
-                 "rewards in the first 15 min 10 s · passive = replay of the partner")
+                 "rewards in the first 15 min 10 s · P = passive: R = drops delivered; small line = its partner's R "
+                 "and PR")
     tasks = {d: PT.day_type(Tb, d) for d in days}
     two = len(days) <= 8
     w0, w1 = 1.6, 0.95
@@ -343,14 +344,25 @@ def pr_slide(prs, blank, days, foot, Tb):
                 same = r.replay_match is True or r.replay_match == 1
                 lines = [[(f"P · R {r.rewards_python:.0f}", {})]]
                 if two:
-                    lines.append([(f"replay of {PT.partner_of(r.replay_source)}"
-                                   + (" (=)" if same else " (≠ partner!)") + flag,
+                    # 2026-11-19 (user: "네, 같이 적기"): the partner's R and PR, so P's R is not read as "PR - 1";
+                    # the longest text that fits the column (Calibri 8 pt: about 0.42 em per character, measured on
+                    # the LibreOffice render; 0.2 in for the cell margins)
+                    name = str(getattr(r, "partner", "") or PT.partner_of(r.replay_source))
+                    pc, _, pcol = name.partition(" ")
+                    short = pcol if pc == c and pcol else name
+                    n_src, ppr = r.replay_source_rewards, getattr(r, "partner_pr", float("nan"))
+                    nums = (f"R {n_src:.0f}" if pd.notna(n_src) else "R ?") + (f" · PR {ppr:.0f}" if pd.notna(ppr)
+                                                                                else "")
+                    tail = ("" if same else " (≠ partner!)") + flag
+                    opts = [f"partner {short}: {nums}{tail}", f"{short}: {nums}{tail}", f"{nums}{tail}"]
+                    fit = [x for x in opts if len(x) * small * 0.42 / 72 <= wd - 0.2]
+                    lines.append([(fit[0] if fit else opts[-1],
                                    {"size": small, "color": MUTED if same else "B42318"})])
                 MS.style_cell(cell, lines, "ECE8F8" if same else QC_FILL["red"], size=big, align=PP_ALIGN.CENTER)
             else:
                 lines = [[(f"R {r.rewards_910s:.0f}", {})]]
                 if two:
-                    sub = (f"untimed {r.session_s / 60:.0f} min: {r.rewards_python} in all" if r.session_s > 930
+                    sub = (f"untimed {r.session_s / 60:.0f} min: {r.rewards_python:.0f} in all" if r.session_s > 930
                            else r.task) + flag
                     lines.append([(sub, {"size": small, "color": "9A5B00" if r.session_s > 930 else MUTED})])
                 MS.style_cell(cell, lines, "EEF1F5", size=big, align=PP_ALIGN.CENTER)

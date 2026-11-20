@@ -10,6 +10,9 @@ score table show me them"). Report only: reads the routine's tables, changes not
   rewards check Python reward commands = Saleae valve openings (pr_checks_dayN.csv), per session
   reference     the previous cohort's PR of that day in its first 910 s (median and range; pr_checks_dayN.csv
                 prev_RL910_*; reference only - training and valve differ)
+  passive       (days 6-10) the drops delivered (R) and, since 2026-11-19 (user: "네, 같이 적기"), the replayed
+                active partner's R and PR in the same cell (columns partner, partner_pr). A passive mouse has no PR of
+                its own; its R equals the partner's R, which is the partner's PR - 1, so R alone looked like "PR - 1".
 Outputs: analysis/days/pr_table_days<a>-<b>.csv (one row per mouse and day) and pr_table_days<a>-<b>.png
 
 usage: python pr_table_days.py [--days 1 2 3 4 5]      (default: every day with a pr_checks file)
@@ -85,7 +88,22 @@ def table(days):
                 prev_pr_median=r.get("prev_RL910_median", r.get("prev_RL_median", np.nan)),
                 prev_pr_min=r.get("prev_RL910_min", r.get("prev_RL_min", np.nan)),
                 prev_pr_max=r.get("prev_RL910_max", r.get("prev_RL_max", np.nan)), prev_pr_n=r.get("prev_RL_n", np.nan)))
-    return pd.DataFrame(rows)
+    Tb = pd.DataFrame(rows)
+    if Tb.empty:
+        return Tb
+    # 2026-11-19 (user: "네, 같이 적기"): the replayed active partner and its PR next to a passive mouse's R
+    Tb["partner"], Tb["partner_pr"] = "", np.nan
+    for k, r in Tb[Tb.task == "PASSIVE"].iterrows():
+        src = str(r.get("replay_source", "") or "")
+        if src in ("", "nan"):
+            continue
+        name = partner_of(src)
+        Tb.at[k, "partner"] = name
+        pc, _, pm = name.partition(" ")
+        q = Tb[(Tb.day == r.day) & (Tb.cage == pc) & (Tb.mouse == pm) & (Tb.task == "PR")]
+        if len(q) and pd.notna(q.pr.iloc[0]):
+            Tb.at[k, "partner_pr"] = float(q.pr.iloc[0])
+    return Tb
 
 
 def day_type(Tb: pd.DataFrame, d, short=False):
@@ -158,12 +176,21 @@ def figure(Tb: pd.DataFrame, days, out: Path):
                 cell(j + 1, i, f"{r.pr:.0f}", sub=f"rewards {r.rewards_python:.0f} · {ok}",
                      face=matplotlib.colors.to_hex(cmap(0.12 + 0.5 * v)), bold=True)
             elif r.task == "PASSIVE":
-                same = ("= partner" if r.replay_match is True or r.replay_match == 1 else
-                        "partner ?" if pd.isna(r.replay_source_rewards) else "≠ partner!")
-                cell(j + 1, i, f"passive · R {r.rewards_python:.0f}", sub=f"replay of {partner_of(r.replay_source)} · {same}",
-                     face="#ece8f8", sub2=ok if not r.rewards_match else "")
+                # 2026-11-19 (user: "네, 같이 적기"): the partner's R and PR in the cell, so R is not read as "PR - 1"
+                n_src = r.replay_source_rewards
+                same = r.replay_match is True or r.replay_match == 1
+                if r.partner:
+                    pc, _, pcol = r.partner.partition(" ")
+                    short = pcol if pc == c and pcol else r.partner        # same cage: the colour is enough
+                    part = f"partner {short}: " + (f"R {n_src:.0f}" if pd.notna(n_src) else "R ?") + \
+                           (f" · PR {r.partner_pr:.0f}" if pd.notna(r.partner_pr) else "")
+                else:
+                    part = "replay source not found"
+                warn = [w for w in (None if same else ("partner ?" if pd.isna(n_src) else "≠ partner!"),
+                                    None if r.rewards_match else ok) if w]
+                cell(j + 1, i, f"passive · R {r.rewards_python:.0f}", sub=part, face="#ece8f8", sub2=" · ".join(warn))
             else:
-                full = "" if not (r.session_s > 930) else f"untimed {r.session_s / 60:.0f}-min run: {r.rewards_python} in all"
+                full = "" if not (r.session_s > 930) else f"untimed {r.session_s / 60:.0f}-min run: {r.rewards_python:.0f} in all"
                 cell(j + 1, i, f"R {r.rewards_910s:.0f}", sub=f"{r.task} · {ok}", face="#eef1f5", sub2=full)
     # median + previous cohort
     i = len(MICE) + 1
