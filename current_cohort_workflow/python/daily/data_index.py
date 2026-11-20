@@ -125,6 +125,14 @@ def newest(paths):
     return max(paths, key=lambda x: x.name) if paths else None
 
 
+def all_days_tables(folder: Path, pat: str) -> list:
+    """The all-days tables <name>_days1-N.csv, smallest N first. Backup copies such as
+    <name>_days1-N_before_<date>_<why>.csv are left out: they are not data, and their names have no N at the end
+    (added 2026-11-20: such a backup made the sort below fail with IndexError)."""
+    fs = [x for x in folder.glob(pat) if re.search(r"_days\d+-\d+\.csv$", x.name)]
+    return sorted(fs, key=lambda x: int(re.findall(r"(\d+)\.csv$", x.name)[0]))
+
+
 def build(project: Path) -> pd.DataFrame:
     X = Index(project)
     ses = {}
@@ -240,14 +248,14 @@ def build(project: Path) -> pd.DataFrame:
         if g.exists():
             X.add(g, f"master_{stem}", "all", final="yes", note="rebuilt from the per-session files every day")
     for pat, kind in (("qc_summary_days*.csv", "qc_summary"), ("qc_issues_days*.csv", "qc_issues"),
-                      ("pr_table_days*.csv", "pr_table")):          # pr_table: pr_table_days.py (2026-11-18)
-        fs = sorted(days_dir.glob(pat), key=lambda x: int(re.findall(r"(\d+)\.csv$", x.name)[0]))
+                      ("pr_table_days*.csv", "pr_table"),           # pr_table: pr_table_days.py (2026-11-18)
+                      ("ti_table_days*.csv", "ti_table")):          # ti_table: ti_table_days.py (2026-11-20)
+        fs = all_days_tables(days_dir, pat)
         for g in fs:
             X.add(g, kind, "all", final="yes" if g == fs[-1] else "no")
     # pupil check (2026-11-18, pupil_check_examples.py): frames out of the pupil the tables use + Claude's verdicts
     pc = project / "analysis" / "pupil_check"
-    fs = sorted(pc.glob("pupil_check_days*.csv"), key=lambda x: int(re.findall(r"(\d+)\.csv$", x.name)[0])) \
-        if pc.is_dir() else []
+    fs = all_days_tables(pc, "pupil_check_days*.csv") if pc.is_dir() else []
     for g in fs:
         X.add(g, "pupil_check", "all", final="yes" if g == fs[-1] else "no",
               note="frames out per session (held, jumps, odd size / no eye, off eye) + Claude's check")

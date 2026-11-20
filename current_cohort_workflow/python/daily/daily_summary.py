@@ -20,7 +20,8 @@ daily_summary.py - end-of-day routine ("summary of today behavior result").
               camera frames vs pulses, Saleae settings vs tools\\protocol_expected.csv) and pr_daily_checks.py
               (per-mouse PR table: analysis\\days\\dayN\\pr_checks_dayN.txt/.csv and figs\\12_pr_checks.png);
               then (2026-11-18) pr_table_days.py: the PR of every mouse on every day in one table
-              (analysis\\days\\pr_table_days1-N.csv/.png)
+              (analysis\\days\\pr_table_days1-N.csv/.png), and (2026-11-20) ti_table_days.py: the tail-immersion
+              latency of every mouse on every day from day 5 (analysis\\days\\ti_table_days5-N.csv/.png + plot)
   5b) ASSAYS (added 2026-11-18; --no-assays skips it) assays_day.py: the day's TST / hot-plate videos (Logitech
               Capture folder, names <cage><mouse>_TST_dayN / _HOT_dayN) copied to tst_video / hp_video; TST scored
               automatically on the FIRST 3 MIN (tst_mouse_lock.py: the package scorer unchanged + per-frame mouse
@@ -905,6 +906,11 @@ def main(argv=None):
             print("  !! rewards Python != Saleae in a session (see above)")
         elif rc_pt:
             print("  !! pr_table_days.py could not finish (see above)")
+        # tail immersion of every mouse on every day from day 5, one table + plot (added 2026-11-20, user: "in summary
+        # we should also show TI data aswell ofc in all days"); the values are the ones the user sent in chat
+        print("\n=== TI TABLE (tail immersion, all days so far) ===")
+        if subprocess.run([sys.executable, "-B", str(TOOLS / "ti_table_days.py")]).returncode:
+            print("  !! ti_table_days.py could not finish (see above)")
         # TST + HOT of the day (added 2026-11-18; TST/HP days 5, 10, 13, 16, 18): videos copied into tst_video /
         # hp_video, TST scored automatically on the first 3 min -> assays\dayN\...\ManualScoringResults_<video>_AUTO.mat
         # (the name the original Step 02 reads), HOT first-30-s copies for the hand scorer and its .mat files filed;

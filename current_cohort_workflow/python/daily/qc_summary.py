@@ -370,8 +370,13 @@ def main(argv=None):
             r = R[(R.day == d) & (R.cage == c) & (R.mouse == m)].iloc[0]
             ax.add_patch(plt.Rectangle((j + 0.02, i + 0.04), 0.96, 0.92, color=COL[r.status]))
             if compact:
-                txt = (f"R{int(r.rewards)}" if pd.notna(r.get("rewards")) else "") + \
-                      (f" PR{int(r.pr)}" if pd.notna(r.get("pr")) else "") + "\n" + str(r.flags or "")[:22]
+                # r["flags"], not r.flags: on a pandas row, .flags is pandas' own Flags object (fixed 2026-11-20,
+                # the first day with more than 6 days showed "<Flags(allows_duplicate_labels=True)>" in every cell)
+                fl = r.get("flags")
+                fl = "" if pd.isna(fl) else str(fl)
+                top = (f"R{int(r.rewards)}" if pd.notna(r.get("rewards")) else "") + \
+                      (f" PR{int(r.pr)}" if pd.notna(r.get("pr")) else "")
+                txt = "\n".join([top] + (textwrap.wrap(fl, 21)[:2] or [""]))
                 ax.text(j + 0.06, i + 0.5, txt, va="center", fontsize=7, family="monospace")
             else:
                 ax.text(j + 0.05, i + 0.5, r.cell, va="center", fontsize=8.3, family="monospace")

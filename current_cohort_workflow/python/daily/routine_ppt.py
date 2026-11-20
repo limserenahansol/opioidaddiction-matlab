@@ -3,7 +3,9 @@
 folder address where I can find all plots and representative plots as fundamental, what to do better next";
 complicated analysis waits until after day 18). Report only: reads what the routine made, changes nothing.
 
-  1  overview: counts, today's PR, decisions needed       2  PR score per mouse and day, all days (2026-11-18)
+  1  overview: counts, today's PR and TI, decisions needed 2  PR score per mouse and day, all days (2026-11-18)
+  2b tail immersion per mouse and day, all days + plot (2026-11-20; user: "in summary we should also show TI data
+     aswell ofc in all days"; tools\\ti_table_days.py)
   3  QC per session (green / yellow / red)                 (+ on assay days: TI / TST / HOT of the day, 2026-11-18)
   4  pupil check per session: Claude's check and the frames out, + the overview picture (2026-11-18)
   5  data problems found and what was done                 6  routine problems fixed (rig, files, software)
@@ -39,6 +41,7 @@ import make_summary_ppt as MS  # noqa: E402  (look and helpers of the first PPT 
 import qc_summary as QS  # noqa: E402
 import pr_table_days as PT  # noqa: E402  (PR score per mouse and day, 2026-11-18)
 import pupil_check_examples as PCE  # noqa: E402  (pupil check pictures + Claude's verdicts, 2026-11-18)
+import ti_table_days as TI  # noqa: E402  (tail immersion per mouse and day, 2026-11-20)
 
 P = TOOLS.parent
 DAYS_DIR = P / "analysis" / "days"
@@ -401,6 +404,89 @@ def pr_slide(prs, blank, days, foot, Tb):
     MS.add_footer(s, foot)
 
 
+def _orange(v):
+    """fill for a TI cell: v = 0 (shortest latency of the table) .. 1 (longest)"""
+    a, b = (0xFF, 0xF4, 0xE8), (0xF6, 0xB2, 0x6B)
+    return "".join(f"{int(round(x + (y - x) * max(0.0, min(1.0, v)))):02X}" for x, y in zip(a, b))
+
+
+def ti_slide(prs, blank, TIt, foot):
+    """Tail-immersion latency of every mouse on every TI day so far (added 2026-11-20; user: "in summary we should
+    also show TI data aswell ofc in all days"). TIt = ti_table_days.table(): the latency the user sent (s) and its
+    change from day 5 (the last natural-reward day before morphine). A native table, and the plot
+    analysis\\days\\ti_plot_days*.png (ti_table_days.py) next to it, or on a second slide after 8 TI days."""
+    days = sorted(int(d) for d in TIt.day.unique())
+    tag = TI.tag_of(days)
+    s = prs.slides.add_slide(blank)
+    MS.add_title(s, "Tail immersion per mouse and day",
+                 "Latency you sent (s) · small line = change from day 5 (before morphine) · Baseline 1–5 natural reward"
+                 " · Yoked 6–10 morphine · Equal Access 11–13 · Withdrawal 14–16 · Re-exposure 17–18")
+    side = len(days) <= 8                       # the plot fits next to the table
+    w0, w1 = 1.45, 0.8
+    wd = 0.92 if side else (12.33 - w0 - w1) / len(days)
+    W = w0 + w1 + wd * len(days)
+    nrow = len(MICE) + 3                        # header + mice + Active / Passive median
+    rh = 0.42
+    shp = s.shapes.add_table(nrow, len(days) + 2, Inches(0.5), Inches(1.45), Inches(W), Inches(0.34 + rh * (nrow - 1)))
+    shp.name = "TI table"
+    t = shp.table
+    t.columns[0].width, t.columns[1].width = Inches(w0), Inches(w1)
+    for j in range(len(days)):
+        t.columns[j + 2].width = Inches(wd)
+    t.rows[0].height = Inches(0.34)
+    for j, h in enumerate(["Mouse", "Group"] + [f"Day {d}" for d in days]):
+        MS.style_cell(t.cell(0, j), [[(h, {"bold": True, "color": "FFFFFF"})]], NAVY, size=10,
+                      align=PP_ALIGN.CENTER if j >= 2 else PP_ALIGN.LEFT)
+    v = TIt.latency_s.dropna()
+    lo, hi = (v.min(), v.max()) if len(v) else (0, 1)
+    small = 7 if wd < 1.0 else 8
+    for i, (c, m) in enumerate(MICE, start=1):
+        t.rows[i].height = Inches(rh)
+        g = TIt[(TIt.cage == c) & (TIt.mouse == m)]
+        MS.style_cell(t.cell(i, 0), [[(f"{c} ", {"color": MUTED}), (m, {"bold": True})]], "FFFFFF", size=10)
+        grp = str(g.group.iloc[0]) if len(g) and str(g.group.iloc[0]) not in ("", "nan") else "-"
+        MS.style_cell(t.cell(i, 1), grp, "FFFFFF", size=9, color=MUTED)
+        for j, d in enumerate(days):
+            r = g[g.day == d]
+            cell = t.cell(i, j + 2)
+            if r.empty or pd.isna(r.latency_s.iloc[0]):
+                sent = bool(len(r)) and bool(r.session.iloc[0])     # a session but no TI value yet
+                MS.style_cell(cell, "not sent" if sent else "-", QC_FILL["yellow"] if sent else "F2F2F2",
+                              size=8 if sent else 11, color=QC_TEXT["yellow"] if sent else TEXT, align=PP_ALIGN.CENTER)
+                continue
+            r = r.iloc[0]
+            lines = [[(f"{r.latency_s:.2f}", {"bold": True})]]
+            if d > TI.FIRST_TI_DAY and pd.notna(r.change_vs_day5_s):
+                lines.append([(f"{r.change_vs_day5_s:+.2f} vs d{TI.FIRST_TI_DAY}", {"size": small, "color": MUTED})])
+            MS.style_cell(cell, lines, _orange((r.latency_s - lo) / max(1e-6, hi - lo)), size=11, align=PP_ALIGN.CENTER)
+    for k, grp in enumerate(("Active", "Passive")):
+        i = len(MICE) + 1 + k
+        t.rows[i].height = Inches(rh)
+        MS.style_cell(t.cell(i, 0), [[(f"{grp} median", {"bold": True})]], "FFF6DB", size=9)
+        MS.style_cell(t.cell(i, 1), "", "FFF6DB", size=9)
+        for j, d in enumerate(days):
+            x = TIt[(TIt.day == d) & (TIt.group == grp)].latency_s.dropna()
+            txt = ([[(f"{x.median():.2f}", {"bold": True})], [(f"n {len(x)}", {"size": small, "color": MUTED})]]
+                   if len(x) else "-")
+            MS.style_cell(t.cell(i, j + 2), txt, "FFF6DB", size=11, align=PP_ALIGN.CENTER)
+    plot = DAYS_DIR / f"ti_plot_{tag}.png"
+    if side and plot.exists():
+        x0 = 0.5 + W + 0.25
+        picture(s, plot, x0, 1.4, 12.83 - x0, 4.85, "TI plot")
+    MS.add_text(s, 0.5, 6.42, 12.3, 0.5,
+                "Values as you sent them in chat (assays\\tail_immersion_all.csv); Step 02 reads the same value (B1 of "
+                "assays\\dayN\\<cage>\\<mouse>\\*_immersion_dayN.csv) · '-' = no session that day yet · 'not sent' = a "
+                f"session but no TI value · table and picture: analysis\\days\\ti_table_{tag}.csv / .png",
+                size=10, color=MUTED, name="TI note")
+    MS.add_footer(s, foot)
+    if not side and plot.exists():
+        s2 = prs.slides.add_slide(blank)
+        MS.add_title(s2, "Tail immersion per day: plot", "One thin line per mouse, thick = group median · shaded = "
+                     "morphine days · Active red, Passive blue")
+        picture(s2, plot, 0.5, 1.45, 12.33, 4.9, "TI plot")
+        MS.add_footer(s2, foot)
+
+
 def pupil_check_slides(prs, blank, days, foot):
     """Claude's check of the pupil the tables use, every session so far (added 2026-11-18; user: "show me png files
     as example of 8 mice x 5 days ... your confirmation this session is okay if it is noisy how many frames are
@@ -498,6 +584,8 @@ def build(days, out: Path, pupil_days=None):
     PRT = pr_table(days)
     PT.main(["--days", *map(str, days)])        # refresh analysis\\days\\pr_table_days*.csv/.png (a few s)
     PTb = PT.table(days)                        # one row per mouse and day: PR / passive / FR (2026-11-18)
+    ti_days = [d for d in days if d >= TI.FIRST_TI_DAY]    # tail immersion from day 5 (2026-11-20)
+    TIt = TI.table(ti_days) if ti_days else pd.DataFrame()
     run = newest_run()
     cfd = cohort_dir(run)
     N, made = days[-1], datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -554,6 +642,15 @@ def build(days, out: Path, pupil_days=None):
     else:
         sub = S[S.day == N]
         lines.append([("Rewards: ", {"bold": True}), (f"median {sub.reward_cmd.median():g}", {})])
+    tin = TIt[TIt.day == N] if len(TIt) else TIt
+    if len(tin) and tin.latency_s.notna().any():   # 2026-11-20: today's tail immersion in the overview too
+        parts = [f"{grp} {tin[tin.group == grp].latency_s.median():.2f}" for grp in ("Active", "Passive")
+                 if tin[tin.group == grp].latency_s.notna().any()]
+        b5 = TIt[TIt.day == TI.FIRST_TI_DAY].latency_s.dropna()
+        lines.append([("Tail immersion: ", {"bold": True}),
+                      (f"median {' · '.join(parts)} s ({int(tin.latency_s.notna().sum())} mice"
+                       + (f"; day {TI.FIRST_TI_DAY} {b5.median():.2f} s" if len(b5) and N > TI.FIRST_TI_DAY else "")
+                       + ")", {})])
     qn = Q[Q.day == N]
     lines.append([("QC today: ", {"bold": True}),
                   (f"{len(qn)} sessions · green {int((qn.status == 'green').sum())}, yellow "
@@ -585,6 +682,13 @@ def build(days, out: Path, pupil_days=None):
     # ---- 2 PR score per mouse and day (all days so far; added 2026-11-18)
     block("PR per day")
     pr_slide(prs, blank, days, foot, PTb)
+
+    # ---- 2b tail immersion per mouse and day (all TI days so far; added 2026-11-20, user: "in summary we should also
+    # show TI data aswell ofc in all days")
+    if len(TIt) and TIt.latency_s.notna().any():
+        TI.main(["--days", *map(str, ti_days)])  # refresh analysis\\days\\ti_table_days*.csv/.png (a few s)
+        block("Tail immersion per day")
+        ti_slide(prs, blank, TIt, foot)
 
     # ---- 3 QC per session
     block("QC per session")
