@@ -92,6 +92,22 @@ SHOW_SHORT = {"frames", "frames_open", "length", "off_eye", "off_eye_kept", "lic
               "lick_late", "lick_unknown", "pupil_noisy", "rewards", "filename", "check_open"}
 
 
+def off_eye_decisions_text():
+    """'What was done' for kept off-eye frames, read from analysis/days/qc_decisions.csv (qc_summary.decisions()):
+    every mouse, its day (or every day) and the date of the user's answer. Added 2026-11-19: the fixed text said
+    '11-18' for every session, which was wrong once 9670f black day 6 was decided on 11-19. None = no decision."""
+    parts = []
+    for (c, m, cat), L in sorted(QS.decisions().items()):
+        if cat != "off_eye":
+            continue
+        for day, _dec, when in sorted(L, key=lambda x: (x[0] is not None, x[0] or 0)):
+            w = when[5:] if len(when) == 10 else when        # 2026-11-18 -> 11-18
+            parts.append(f"{c} {m} {'every day' if day is None else f'day {day}'} ({w})")
+    if not parts:
+        return None
+    return "Your decision: keep those frames as they are - " + "; ".join(parts) + " (qc_decisions.csv)"
+
+
 # ---------------------------------------------------------------- helpers
 def picture(slide, path: Path, x, y, w, h, name):
     from PIL import Image
@@ -622,6 +638,8 @@ def build(days, out: Path, pupil_days=None):
     groups = []
     for cat, g in I[I.cat.isin(CAT)].groupby("cat", sort=False):
         prob, done, st = CAT[cat]
+        if cat == "off_eye_kept":          # 2026-11-19: who and when from qc_decisions.csv, not a fixed date
+            done = off_eye_decisions_text() or done
         if cat == "open_issue":
             for title, gg in g.groupby("short", sort=False):
                 groups.append((st, title, sess_text(gg, cat), done))

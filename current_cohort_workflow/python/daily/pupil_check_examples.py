@@ -320,10 +320,25 @@ def _count(s, o, pct, n):
             f"  +  odd size {pct(o['odd_n'])}  ·  worst minute {o['worst_minute_out_pct']:.0f} %")
 
 
+def off_eye_decision(day, cage, mouse):
+    """date of the user's 'keep the off-eye frames' answer for this session (analysis/days/qc_decisions.csv, cat
+    off_eye; empty day = every day of that mouse), or None. Added 2026-11-19: the picture said 'your decision 11-18'
+    for every whole-eye session, also for 9670f black, whose day-6 answer came on 11-19."""
+    for r in CC.read_rows(P / "analysis" / "days" / "qc_decisions.csv", warn=None,
+                          need=("cage", "mouse", "cat", "decision")):
+        if (r["cat"].strip().lower() == "off_eye" and r["cage"].strip().lower() == str(cage).lower()
+                and r["mouse"].strip().lower() == str(mouse).lower()
+                and (not str(r.get("day", "")).strip() or int(r["day"]) == int(day))):
+            w = str(r.get("decided", "")).strip()
+            return w[5:] if len(w) == 10 else (w or "on file")
+    return None
+
+
 def detail_line(s, o):
     if s["kind"] == "eye":
+        dec = off_eye_decision(s["day"], s["cage"], s["mouse"])
         return ("held = the eye model found no eye; off eye = the mask centre > 20 px from the eye centre of that "
-                "minute (kept as they are, your decision 11-18)")
+                "minute (" + (f"kept as they are, your decision {dec}" if dec else "kept in the tables") + ")")
     if s["src"].startswith("dark"):
         S = s["dark"]
         a = S.get("actions", {})
