@@ -172,6 +172,10 @@ def session(day, cage, mouse, root, G):
     base = dict(day=day, cage=cage, mouse=mouse)
     g = G.get((day, cage, mouse))
     base["grade"] = str(g.grade) if g is not None else "-"
+    # 2026-11-20: a mouse whose session of that day has not run yet (or is not filed yet) is not "no video"
+    pl = P / "python" / f"day{day}" / cage / mouse
+    if not (pl.is_dir() and any(pl.glob("*.jsonl"))):
+        return dict(base, kind="none", table_run="", note="no session yet (not run or not filed)")
     vd = P / "video" / f"day{day}" / cage / mouse
     if not (vd.is_dir() and (any(vd.glob("*.mp4")) or any(vd.glob("*.avi")))):
         runs = CC.usable_runs(sd, root) if sd is not None else []
