@@ -21,8 +21,11 @@ For day N, like the HOT step of assays_day.py (that file is not changed):
       cd('<project>/tools/opioidaddiction-matlab/current_cohort_workflow/matlab')
       manual_scoring_video_multibehavior_speed('<project>/straub_video/day<N>_first5min', 1)
  3. FILING: output/ManualScoringResults_*.mat -> assays/day<N>/<cage>/<mouse>/ (the name keeps 'straub').
- 4. TABLE: analysis/days/day<N>/straub_day<N>.csv: seconds scored, straub_pct (key 'a'), straub_free_pct (no key),
-    other keys % (should be 0; '!!' if not), tail-immersion latency of the day.
+ 4. AUTOMATIC (added 2026-11-21 after the user confirmed it on an annotated video; skip with --no-auto): straub_auto.py
+    on every scoring copy -> analysis/straub_auto/day<N>/ (per-frame tail angle; Straub = > 25 deg from the body axis,
+    or the tail raised over the back; 0.5-s majority). Shown next to the hand score, never instead of it.
+ 5. TABLE: analysis/days/day<N>/straub_day<N>.csv: seconds scored, straub_pct (key 'a'), straub_free_pct (no key),
+    other keys % (should be 0; '!!' if not), auto_straub_pct, auto_measured_pct, tail-immersion latency of the day.
 Dry run unless --apply. Windows idle priority.
 usage: python straub_day.py --day 10 [--src <folder> ...] [--seconds 300] [--apply]
 """
@@ -30,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import re
 import subprocess
 import sys
@@ -126,6 +130,23 @@ def file_scores(day: int, sdir: Path, mice, apply: bool, log: list):
                            "Straub tail hand score, first 5 min")
 
 
+def auto_step(day: int, sdir: Path, apply: bool, log: list):
+    """automatic Straub tail (straub_auto.py, confirmed by the user on 2026-11-21) on every scoring copy: per-frame tail
+    angle, Straub = > 25 deg from the body axis (or raised over the back), 0.5-s majority -> analysis/straub_auto/day<N>/"""
+    out = P / "analysis" / "straub_auto" / f"day{day}"
+    for v in sorted(sdir.glob("*_first5min.mp4")) if sdir.exists() else []:
+        js = out / f"{v.stem}_summary.json"
+        if js.exists() and js.stat().st_mtime >= v.stat().st_mtime:
+            continue
+        if not apply:
+            log.append(f"  would run the automatic Straub tail on {v.name}")
+            continue
+        import straub_auto as SAU
+        S = SAU.run(v, out, None)
+        log.append(f"  automatic Straub tail {v.name}: {S['straub_pct']} % (angle measured in {S['measured_pct']} % of "
+                   f"frames) -> {js.relative_to(P).as_posix()}")
+
+
 def table(day: int, mice, log: list):
     import numpy as np
     import scipy.io as sio
@@ -136,10 +157,19 @@ def table(day: int, mice, log: list):
             for r in csv.DictReader(fh):
                 if int(r["day"]) == day:
                     tail[(r["cage"], r["mouse"])] = r["latency_s"]
+    autos = {}
+    for js in sorted((P / "analysis" / "straub_auto" / f"day{day}").glob("*_summary.json")):
+        _, ac, am, ad = parse(js.stem, mice)
+        if ac and am and ad == day:
+            autos[(ac, am)] = json.loads(js.read_text(encoding="utf-8"))
     rows = []
     for cage in sorted(mice):
         for mouse in sorted(mice[cage]):
             r = dict(day=day, cage=cage, mouse=mouse)
+            au = autos.get((cage, mouse))
+            if au:
+                r["auto_straub_pct"] = au.get("straub_pct")
+                r["auto_measured_pct"] = au.get("measured_pct")
             adir = P / "assays" / f"day{day}" / cage / mouse
             f = sorted(adir.glob("ManualScoringResults*straub*.mat")) if adir.exists() else []
             r["straub_file"] = f[-1].name if f else ""
@@ -178,6 +208,7 @@ def main(argv=None) -> int:
     ap.add_argument("--src", nargs="*", help="folders with the day's videos (default: assay_video_dirs)")
     ap.add_argument("--seconds", type=float, default=300.0, help="length of the scoring copy (default 300 s = 5 min)")
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--no-auto", action="store_true", help="skip the automatic Straub tail (straub_auto.py)")
     a = ap.parse_args(argv)
     AD.idle()
     mice = AD.known_mice(P)
@@ -186,6 +217,8 @@ def main(argv=None) -> int:
     arrange(a.day, [Path(s) for s in a.src] if a.src else AD.default_src(), mice, a.apply, log)
     vids, sdir = copies(a.day, a.seconds, a.apply, log)
     file_scores(a.day, sdir, mice, a.apply, log)
+    if not a.no_auto:
+        auto_step(a.day, sdir, a.apply, log)
     if vids:
         mdir = T / "opioidaddiction-matlab" / "current_cohort_workflow" / "matlab"
         n_done = len(list((sdir / "output").glob("ManualScoringResults_*.mat"))) if (sdir / "output").exists() else 0
@@ -194,7 +227,7 @@ def main(argv=None) -> int:
     else:
         log.append(f"  no Straub video for day {a.day} yet (name needs 'straub', the mouse and 'day{a.day}', e.g. "
                    f"9670fgreen1_straub_day{a.day}.mp4)")
-    if a.apply:
+    if a.apply and vids:                       # no table on days without Straub videos
         out, rows = table(a.day, mice, log)
         log.append(f"  table: {out.relative_to(P).as_posix()} ({sum(1 for r in rows if r['straub_file'])} scored)")
     print("\n".join(log) + ("" if a.apply else "\n(dry run - nothing written)"))

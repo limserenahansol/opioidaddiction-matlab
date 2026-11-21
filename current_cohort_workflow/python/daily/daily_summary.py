@@ -30,6 +30,10 @@ daily_summary.py - end-of-day routine ("summary of today behavior result").
               check + camera-view fix only when needed) -> assays\\dayN\\<cage>\\<mouse>\\ManualScoringResults_
               <video>_AUTO.mat; HOT: first-30-s copies for the hand scorer (hp_video\\dayN_first30s), its .mat files
               filed; table analysis\\days\\dayN\\assays_dayN.csv (TST, HOT, tail immersion)
+  5c) STRAUB TAIL (added 2026-11-21; skipped with --no-assays) straub_day.py: <cage><mouse>_straub_dayN videos ->
+              straub_video, first-5-min copies for the hand scorer (key 'a' held while the tail is up), its .mat files
+              filed for Step 02, and the AUTOMATIC score of every copy (straub_auto.py) -> analysis\\straub_auto\\dayN;
+              table analysis\\days\\dayN\\straub_dayN.csv (hand % next to automatic %)
   6) STEP 02  copy this day's concat_out + task log (+ assay files) into step02_base (input of the original Step 02)
   7) STEP 02 (every day since 2026-11-17; --no-longitudinal skips it) original Step 02 -> ALL_mice_longitudinal.csv,
               then the previous cohort's figures (cohort_plots.py; whole-eye mice left out of the pupil figures)
@@ -933,6 +937,15 @@ def main(argv=None):
                     print("  !! assays_day.py could not finish (see above)")
             else:
                 print("\n(assays step skipped: tools\\.venv_pkg313 missing)")
+        # STRAUB TAIL (added 2026-11-21; user: "from now on you can use this for my current cohort from tmr"):
+        # straub_day.py arranges <cage><mouse>_straub_dayN videos, makes first-5-min copies for the hand scorer, files
+        # its .mat files and scores every copy AUTOMATICALLY (straub_auto.py: tail > 25 deg from the body axis or
+        # raised over the back, 0.5-s majority; confirmed by the user on an annotated video 2026-11-21) ->
+        # analysis\straub_auto\dayN + analysis\days\dayN\straub_dayN.csv. Nothing happens on days without Straub videos.
+        if not args.no_assays:
+            print()
+            if subprocess.run([sys.executable, "-B", str(TOOLS / "straub_day.py"), "--day", str(dn), "--apply"]).returncode:
+                print("  !! straub_day.py could not finish (see above)")
         update_step02_base(dn)
         # Step 02 + the previous cohort's figures every day since 2026-11-17 (the routine PPT shows them as the basic
         # plots); --no-longitudinal skips it
