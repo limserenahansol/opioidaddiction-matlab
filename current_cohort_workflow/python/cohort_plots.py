@@ -388,7 +388,11 @@ def figures(D, T, P, out):
         save(fig, out, "AS01_tail_immersion_by_day", made)
     else:
         skipped.append("AS01 (no Immersion_Latency_s yet)")
-    for fid, col in (("AS02", "HOT_Pct_Non_moving"), ("AS03", "TST_Pct_Non_moving"), ("AS04", "STRAUB_Pct_Non_moving")):
+    # AS04 Straub tail % = time with the tail UP (user 2026-11-21 "네, 바꿔요"): the scorer's key 'a' was held while the
+    # tail was up, so STRAUB_Pct_Non_moving (no key) is the Straub-FREE time (previous cohort day 16: 95-99 %); plot
+    # 100 - it, as post-hoc plan N16. compute_straub_tail_only_v1.m (unchanged) plots the Straub-free % itself.
+    D["STRAUB_Pct_tail_up"] = 100 - D["STRAUB_Pct_Non_moving"]
+    for fid, col in (("AS02", "HOT_Pct_Non_moving"), ("AS03", "TST_Pct_Non_moving"), ("AS04", "STRAUB_Pct_tail_up")):
         if D[col].notna().any():
             Mm = phase_median(D, col, exclude_transition=False)
             phs = [p for p in present if (Mm.phase == p).any()]
