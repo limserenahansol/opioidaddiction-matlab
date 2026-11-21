@@ -9,8 +9,10 @@ daily_summary.py - end-of-day routine ("summary of today behavior result").
               Every action is written to <project>/_arrangement_log.csv. Files still open (recording) are skipped.
   2) SYNC     sync_sessions.py   (Python + Saleae + video on one clock)
   3) ANALYSIS quick_analysis.py  (per-day summary figures + across-day master tables)
-  4) PUPIL    the user's pupil/TST package for this day (pupil only since 2026-11-18; TST: step 5b); ~10 min/session,
-              then the options for rare sessions - the alignment fixes of alignment_fixes.csv
+  4) PUPIL    first (2026-11-20) the eye-box size check: every day-N box must have its mouse's fixed size from
+              video\\eye_box_sizes.csv (eye_box_fixed.py --check; report only; set the boxes with eye_box_fixed.py
+              --set); then the user's pupil/TST package for this day (pupil only since 2026-11-18; TST: step 5b);
+              ~10 min/session, then the options for rare sessions - the alignment fixes of alignment_fixes.csv
               (fix_concat_alignment.py) and the full-pupil traces of fullpupil_sessions.csv (fullpupil_sessions.py;
               its screen is not run daily) - then pupil grades + alignment check
               (pupil_session_quality.py), guess traces and the eye-box check sheet; then (2026-11-18) the pupil check
@@ -812,6 +814,13 @@ def main(argv=None):
             # TST is no longer scored by the package's own TST step (2026-11-18): assays_day.py below runs the same
             # package scorer on the FIRST 3 MIN with the per-frame mouse check (user: "TST should be 3min so just use
             # first 3min", "always only mouse tracking"); the package run here does the pupil only
+            # fixed eye-box size per mouse (added 2026-11-20, user: "네, 모두 다시" = one box size per mouse for all
+            # days, because the box size changes the pupil size the package reads): report only, before the package
+            print("\n=== EYE BOX SIZE CHECK (fixed size per mouse, video\\eye_box_sizes.csv; report only) ===")
+            if subprocess.run([sys.executable, str(TOOLS / "eye_box_fixed.py"), "--project", str(PROJECT), "--check",
+                               "--day", str(dn)]).returncode:
+                print("  !! CHECK: set the day's boxes with eye_box_fixed.py --day N --set CAGE MOUSE CX CY --apply\n"
+                      "     (eye opening centre read on the day's frames) before the pupil step")
             if run_package_day(dn, False):
                 # approved alignment fixes (added 2026-11-15): sync-aligned copy of the package's concat_out for the
                 # sessions in pupil_tst_final\alignment_fixes.csv (the user's approval); any other mismatch is only

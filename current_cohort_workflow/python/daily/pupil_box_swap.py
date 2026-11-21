@@ -19,6 +19,10 @@ Derived copies (alignment fix, dark-contrast repair, ...) are made again by the 
 their list still approves the session. Afterwards run the daily routine (daily_summary.py --no-arrange) so every
 table, the pupil check pictures, step02_base and Step 02 follow.
 
+Also used for the fixed-box re-track (2026-11-20, user "네, 모두 다시": one eye-box size per mouse, days 1-7 re-tracked
+in analysis/pupil_fixedbox). A session swapped twice gets a new superseded folder (_superseded_<date>_box2, ...), and
+its old box_swap.json moves there too.
+
 box_swaps.csv columns: day,cage,mouse,box,test_root,out_before_pct,out_after_pct,centre_diff_px,decided,reason,applied
 usage: python pupil_box_swap.py [--apply]        (dry run unless --apply)
 """
@@ -87,6 +91,10 @@ def one(root: Path, r: dict, apply: bool, stamp: str):
         print(f"  !! {tag}: the test run's box {q.get('roi')} is not the listed box {box}")
         return False
     sup = sd / f"_superseded_{stamp}_box"
+    i = 2
+    while sup.exists():                                   # swapped before on the same day: keep both old sets apart
+        sup = sd / f"_superseded_{stamp}_box{i}"
+        i += 1
     old = [p for p in sd.iterdir() if p.is_dir() and (p.name.startswith("concat_out_") or
                                                       p.name in ("pupil_outputs_general", "pupil_outputs_darkcontrast"))]
     print(f"  {tag}: move {len(old)} old folder(s) -> {sup.name}; copy {len(truns)} run(s) + pupil_outputs_general from "
@@ -96,6 +104,8 @@ def one(root: Path, r: dict, apply: bool, stamp: str):
     sup.mkdir(exist_ok=True)
     for p in old:
         shutil.move(str(p), str(sup / p.name))
+    if (sd / "box_swap.json").exists():
+        shutil.move(str(sd / "box_swap.json"), str(sup / "box_swap.json"))
     shutil.copytree(st / "pupil_outputs_general", sd / "pupil_outputs_general")
     for p in truns:
         shutil.copytree(p, sd / p.name)
@@ -103,16 +113,20 @@ def one(root: Path, r: dict, apply: bool, stamp: str):
     (sd / "pupil_outputs_general" / "qc.json").write_text(json.dumps(q, indent=2), encoding="utf-8")
     rf = vdir / "roi.mat"
     keep = vdir / f"roi_before_{stamp}_box.mat"
+    i = 2
+    while keep.exists():
+        keep = vdir / f"roi_before_{stamp}_box{i}.mat"
+        i += 1
     before = " ".join(str(int(v)) for v in loadmat(rf)["roi"].ravel()) if rf.exists() else ""
-    if rf.exists() and not keep.exists():
+    if rf.exists():
         shutil.copy2(rf, keep)
     savemat(str(rf), {"roi": np.array([box], dtype=float)})
     with open(P / "video" / "roi_log.csv", "a", newline="", encoding="utf-8") as h:
         csv.writer(h).writerow([datetime.now().isoformat(timespec="seconds"), f"day{d}", c, m,
                                 " ".join(str(int(v)) for v in box),
-                                f"better pupil tracking with this eye-centred box (box test {r.get('test_root')}: out "
-                                f"{r.get('out_before_pct')} -> {r.get('out_after_pct')} %, same pupil); swapped into the "
-                                f"real tree by pupil_box_swap.py ({r.get('decided')}); before: {before} "
+                                f"{r.get('reason') or 'better pupil tracking with this eye-centred box'} (test run "
+                                f"{r.get('test_root')}: out {r.get('out_before_pct')} -> {r.get('out_after_pct')} %); "
+                                f"swapped into the real tree by pupil_box_swap.py ({r.get('decided')}); before: {before} "
                                 f"(kept as {keep.name})"])
     note = dict(when=datetime.now().isoformat(timespec="seconds"), tool="tools/pupil_box_swap.py",
                 rule="user 2026-11-20: always use the best (least-error) pupil tracking for the real data",

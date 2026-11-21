@@ -79,6 +79,12 @@ flowchart TB
      - Nothing changes for any other session. A screen that looks for such sessions exists, but it runs only when asked (`--screen-only`) and also flags some normal eyes.
      - The alignment fix above works the same way: an option for the sessions listed in `alignment_fixes.csv`.
    - **Eye-box check.** `pupil_roi_check.py` writes `analysis\days\dayN\figs\01_pupil_roi_check.png`: 3 frames per mouse with its ROI, the tracker's "no pupil" fraction and the session grade. Mice sit differently every day. If an eye is outside its box, set `redraw_roi` and run `RUN_ALL_18DAYS.bat` for that session.
+   - **One eye-box size per mouse (since 2026-11-20).** The package crops the eye box and resizes it to the U-Net's square 128 x 128 input, so the box *size* changes the pupil size it reads. On the same video a 240 → 185 px wide box read 3.0 px (12 %) smaller, while a box of the same size moved onto the eye did not change the size (−0.02 px) and had fewer errors.
+     - So every mouse has one box size for all days, in `video\eye_box_sizes.csv` (cage, mouse, w, h): the mouse's largest eye opening plus about 20 px left/right and 15 px top/bottom. Only the position follows the eye each day.
+     - Before the pupil step, read the eye-opening centre on the day's frames and write the box with `eye_box_fixed.py --day N --set CAGE MOUSE CX CY --apply`. The old `roi.mat` is kept as `roi_before_<date>.mat`, and the box is logged in `video\roi_log.csv`.
+     - `daily_summary.py` runs `eye_box_fixed.py --check --day N` before the package (report only). It prints a CHECK line for a missing box or a box that is not the mouse's size.
+     - Days 1–7 of this cohort were re-tracked with the fixed sizes (test tree `analysis\pupil_fixedbox`). After checking, each session was swapped in with `pupil_box_swap.py`, which keeps the old outputs in `_superseded_<date>_box`.
+     - Mice with a whole-eye measure (eye damage) are not in the size list yet.
    - Because every day is done the same evening, the day-18 `RUN_ALL_18DAYS.bat` only has to build the QC page and redo the sessions marked *redo*. Finished sessions are skipped.
 5. **Step 02 base (every day, all days).** `prepare_step02_base.py` copies each session's newest `concat_out_*`, its task log and the assay files into `step02_base\dayN\...`.
    - Copies that are already there are left alone.
