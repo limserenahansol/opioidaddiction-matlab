@@ -957,6 +957,11 @@ def main(argv=None):
                         encoding="utf-8-sig")
         a.days = sorted(S[S.cage.isin(QS.CAGES)].day.astype(int).unique())
     out = a.out or P / "analysis" / "ppt" / f"routine_day{a.days[-1]}_{datetime.now():%Y%m%d}.pptx"
+    if a.out is None and out.exists():          # add, never overwrite (2026-11-20): a second run that day gets _v2, _v3, ...
+        i = 2
+        while out.with_name(f"{out.stem}_v{i}{out.suffix}").exists():
+            i += 1
+        out = out.with_name(f"{out.stem}_v{i}{out.suffix}")
     build(a.days, out, a.pupil_days)
     return 0
 
