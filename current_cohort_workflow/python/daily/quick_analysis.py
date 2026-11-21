@@ -468,7 +468,11 @@ def find_pupil(pupil_root: Path, day_folder: str, session: str):
                 fp = None
             if fp is not None:
                 return fp
-        oc = sorted(d.rglob(ONE_CLICK_CSV), key=lambda p: p.stat().st_mtime)
+        # outputs kept in a _superseded_<date>_<why> folder inside the session folder (old box, hung run, ...) are never
+        # used (2026-11-20: the hung day-7 9669m black run's csv was read from such a folder while the redo ran)
+        oc = sorted((p for p in d.rglob(ONE_CLICK_CSV)
+                     if not any(part.startswith("_superseded") for part in p.relative_to(d).parts)),
+                    key=lambda p: p.stat().st_mtime)
         if oc:
             return oc[-1]
     return None
