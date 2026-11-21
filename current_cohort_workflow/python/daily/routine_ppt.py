@@ -83,6 +83,9 @@ CAT = {
                    "Known; the previous cohort had it too (7 of 42 PR sessions); task code kept for comparability",
                    "noted"),
     "lick_late": ("A real lick (on the Saleae) that Python read late", "Nothing to change", "noted"),
+    "lick_high_start": ("Lick line already high when the Saleae started (first partial pulse ignored)",
+                        "Nothing changes in the tables; passive = mouth on the intraoral spout. Start Logic before "
+                        "the task", "noted"),
     "licks_extra": ("Python logged extra licks while the 500-ms valve was open (not counted)",
                     "Tables use the Saleae lick line; 200-ms valve since day 3", "noted"),
     "filename": ("File name without the mouse", "Filed by start time (the only free mouse)", "noted"),
@@ -904,21 +907,39 @@ def build(days, out: Path, pupil_days=None):
 
     # ---- 14 what to do better next
     block("what to do better next")
-    s = prs.slides.add_slide(blank)
-    MS.add_title(s, "What to do better next", "From the problems above · open items only (done items stay in "
-                                              "analysis\\days\\next_steps.csv)")
-    for k, (who, title, col) in enumerate((("you", "At the rig (you)", NAVY), ("Claude", "In the routine (Claude)",
-                                                                                 "557A9E"))):
-        items = NS[(NS.who == who) & (NS.status != "done")] if len(NS) else NS
-        paras = []
-        # smaller text when there are many open items, so the box holds them (2026-11-18: 9 items ran off the slide)
-        chars = sum(len(str(r.what)) + len(str(r.why)) for r in items.itertuples())
-        big = 12 if chars <= 900 else 10.5 if chars <= 1300 else 9.5 if chars <= 1700 else 8.5 if chars <= 2200 else 8
-        for r in items.itertuples():
-            paras.append([(f"{r.what}", {"bold": True, "size": big})])
-            paras.append([(f"why: {r.why}", {"size": big - 2, "color": MUTED})])
-        box(s, 0.5 + k * 6.25, 1.42, 6.08, 5.45, title, paras or ["Nothing open."], col, f"Next {who}", size=12)
-    MS.add_footer(s, f"Source: analysis\\days\\next_steps.csv · {foot}")
+    # 2026-11-21 (day 8): 13 open rig items ran off the slide even at 8 pt -> each column is cut into pages of at most
+    # ~1500 characters (shown at 9.5 pt or more) and the slide repeats as "(2/2)", ... when a column needs more pages
+    cols = []
+    for who, title, col in (("you", "At the rig (you)", NAVY), ("Claude", "In the routine (Claude)", "557A9E")):
+        items = list(NS[(NS.who == who) & (NS.status != "done")].itertuples()) if len(NS) else []
+        pages, cur, n = [], [], 0
+        for r in items:
+            c = len(str(r.what)) + len(str(r.why))
+            if cur and n + c > 1500:
+                pages.append(cur)
+                cur, n = [], 0
+            cur.append(r)
+            n += c
+        pages.append(cur)
+        cols.append((who, title, col, pages))
+    n_pages = max(len(p) for *_, p in cols)
+    for pg in range(n_pages):
+        s = prs.slides.add_slide(blank)
+        MS.add_title(s, "What to do better next" + (f" ({pg + 1}/{n_pages})" if n_pages > 1 else ""),
+                     "From the problems above · open items only (done items stay in analysis\\days\\next_steps.csv)")
+        for k, (who, title, col, pages) in enumerate(cols):
+            items = pages[pg] if pg < len(pages) else []
+            paras = []
+            # smaller text when there are many open items, so the box holds them (2026-11-18: 9 items ran off)
+            chars = sum(len(str(r.what)) + len(str(r.why)) for r in items)
+            big = 12 if chars <= 900 else 10.5 if chars <= 1300 else 9.5 if chars <= 1700 else 8.5 if chars <= 2200 else 8
+            for r in items:
+                paras.append([(f"{r.what}", {"bold": True, "size": big})])
+                paras.append([(f"why: {r.why}", {"size": big - 2, "color": MUTED})])
+            empty = "Nothing open." if pg == 0 else "No more items."
+            box(s, 0.5 + k * 6.25, 1.42, 6.08, 5.45, title + (" - continued" if pg and items else ""),
+                paras or [empty], col, f"Next {who}", size=12)
+        MS.add_footer(s, f"Source: analysis\\days\\next_steps.csv · {foot}")
 
     # ---- appendix: the pupil-check picture of every session of pupil_days (default: the last day)
     pdays = [d for d in (pupil_days or [N]) if d in days]

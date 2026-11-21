@@ -225,12 +225,30 @@ def one_session(s, d, c, m, q, pr, keys):
         handled.add("E Python-only")
     if "H sync" in items:
         t = texts.get("H sync", "")
-        if "[WARN] licks:" in t:
+        if ("[WARN] licks:" in t and "replay" in str(getattr(s, "paradigm", "")).lower()
+                and "already HIGH when the capture started" in t):
+            # 2026-11-21 (day 8, 9670f green1): passive replay with the lick line high at the capture start. A replay
+            # log has no lick records (the 'licks:' warning is normal there); Python's 1 extra contact is the start
+            # pulse the Saleae sync ignores. Was filed as 'extra licks while the 500-ms valve was open' (wrong).
+            F.append((1, "lick_high_start", "lick line high at start",
+                      "the Saleae lick line was already high when the capture started; its first partial pulse is "
+                      "ignored (passive: mouth on the intraoral spout, not a lick)"))
+            handled.add("H sync")
+        elif "[WARN] licks:" in t:
             extra_py = (num(s.licks_python) or 0) - (num(s.licks_saleae) or 0)
             F.append((1 if not n_cnt or "E Python-only" in handled else 2, "licks_extra", f"+{extra_py} licks",
                       f"Python logged {extra_py} more licks than the Saleae; {n_cnt} of them counted by the task"))
             handled.add("H sync")
         elif ("frames than camera pulses" in t and "F frames" in handled) or ("no video file" in t and "A video" in handled):
+            handled.add("H sync")
+        elif t.count("[WARN]") and t.count("[WARN]") == t.count("already HIGH when the capture started"):
+            # 2026-11-21 (day 8, 9669m green1): the ONLY sync warning is 'lick line already HIGH when the Saleae capture
+            # started'. The sync ignores that first partial pulse, so nothing in the tables changes; on a passive replay
+            # it is the mouth on the intraoral spout (a contact, not a lick). Was red 'not explained' before.
+            rp = "replay" in str(getattr(s, "paradigm", "")).lower()
+            F.append((1, "lick_high_start", "lick line high at start",
+                      "the Saleae lick line was already high when the capture started; its first partial pulse is "
+                      "ignored" + (" (passive: mouth on the intraoral spout, not a lick)" if rp else "")))
             handled.add("H sync")
     if "B cage/mouse" in items and "filed as" in texts.get("B cage/mouse", ""):
         F.append((1, "filename", f"'{s.session}'",
