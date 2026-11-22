@@ -78,6 +78,10 @@ def qc_frames(folder):
     return out
 
 
+LAB = {"old": "old model (18 outlines)", "new": "new model (21 outlines)"}   # legend (--old-label / --new-label)
+SHORT = {"old": "old model", "new": "new model"}                           # titles
+
+
 def one(key, old_dir, new_dir, out_dir):
     Wo, Wn = pd.read_csv(old_dir / "wholeeye_frames.csv"), pd.read_csv(new_dir / "wholeeye_frames.csv")
     so, sn = stats(Wo), stats(Wn)
@@ -87,7 +91,7 @@ def one(key, old_dir, new_dir, out_dir):
     fig = plt.figure(figsize=(13.2, 11.2))
     gs = fig.add_gridspec(6, 6, height_ratios=[1.25, 0.18, 1, 1, 1, 1], hspace=0.35, wspace=0.05)
     ax = fig.add_subplot(gs[0, :])
-    for W, c, lab in ((Wo, OLD_C, "old model (18 outlines)"), (Wn, NEW_C, "new model (21 outlines)")):
+    for W, c, lab in ((Wo, OLD_C, LAB["old"]), (Wn, NEW_C, LAB["new"])):
         x, y = per_minute(W)
         ax.plot(x, y, "-o", ms=3, color=c, label=lab)
     ax.set_xlabel("minutes (camera pulses at 30.26 Hz)")
@@ -111,7 +115,7 @@ def one(key, old_dir, new_dir, out_dir):
                 a.contour(m.astype(float), levels=[0.5], colors=c, linewidths=1.1)
         a.set_title(f"f{k}  {(k - 1) / HZ / 60:.1f} min  IoU {iou:.2f}", fontsize=7.5)
         a.set_xticks([]), a.set_yticks([])
-    fig.suptitle(f"{key}: orange = old model, cyan = new model (same 24 frames; contrast stretched)", fontsize=11)
+    fig.suptitle(f"{key}: orange = {SHORT['old']}, cyan = {SHORT['new']} (same 24 frames; contrast stretched)", fontsize=11)
     out_dir.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_dir / f"{key}.png", dpi=110, bbox_inches="tight")
     plt.close(fig)
@@ -129,7 +133,13 @@ def main(argv=None):
     ap.add_argument("--old", default=str(P / "analysis" / "wholeeye"))
     ap.add_argument("--new", default=str(P / "analysis" / "wholeeye" / "black3"))
     ap.add_argument("--out", default=str(P / "analysis" / "wholeeye" / "qc" / "compare_black2_black3"))
+    # 2026-11-22: legend names (the defaults are the 11-18 black2 -> black3 comparison)
+    ap.add_argument("--old-label", help="e.g. 'black3 (21 outlines)'")
+    ap.add_argument("--new-label", help="e.g. 'black4 (24 outlines)'")
     a = ap.parse_args(argv)
+    for k, v in (("old", a.old_label), ("new", a.new_label)):
+        if v:
+            LAB[k] = SHORT[k] = v
     old, new, out = Path(a.old), Path(a.new), Path(a.out)
     rows, traces = [], {}
     for f in sorted(new.glob("day*/*/*/wholeeye_frames.csv")):
@@ -160,7 +170,8 @@ def main(argv=None):
         ax.set_title(key, fontsize=9, loc="left")
         ax.grid(alpha=0.3)
     axs[-1, 0].set_xlabel("minutes")
-    fig.suptitle("eye size (equivalent diameter, per-minute median): orange = old model, cyan = new model", fontsize=10)
+    fig.suptitle(f"eye size (equivalent diameter, per-minute median): orange = {SHORT['old']}, cyan = {SHORT['new']}",
+                 fontsize=10)
     fig.tight_layout()
     fig.savefig(out / "compare_traces.png", dpi=110)
     plt.close(fig)
