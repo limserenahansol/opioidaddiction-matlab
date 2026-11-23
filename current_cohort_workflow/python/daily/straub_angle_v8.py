@@ -1,13 +1,10 @@
-"""Straub tail angle, v8 (2026-11-22, user on the day-9 video: "when it is still straub you said no as mouse watching back side..... you should make correct line of body.... if you are not sure you can ask that to me to confirm"). Changes to v6b (straub_angle.py, unchanged):
-  a) BODY = the mouse pixels inside the convex hull of its dark fur (darkness > BODY_FRAC x the mouse's own darkness), then opened: a grey reflection / mouse behind the acrylic wall (0.3-0.5 x darkness) is no longer part of the body, the lighter belly of a sitting mouse stays in it, so the body line follows the mouse;
-  b) tail THINNESS = 2 x area / perimeter (the ribbon width) instead of area / straight length, which made a curved or arched tail (mouse seen from behind, tail over the back) look too thick and dropped it.
-  c) a VERTICAL body (elongated, axis within EXCLUDE_DEG = 45 deg of vertical = rearing / grooming) is excluded: not Straub,
-     not no-Straub, not in the total (user 2026-11-22); straub_auto_v8.py never fills such frames.
-  d) a tail rising > 45 deg is a tail even when it leans forward over the back; a level tail (rise <= 10 deg) held
-     straight back from a hunched body is not Straub even when it leaves the body high.
-  e) (user answers 11-22) a tail leaving the TOP 10 % of the body = Straub even when level; a long piece from the upper
-     half of the body is preferred to a floor / foot piece; a vertical body counts as Straub only when the tail
-     rises > 45 deg and reaches above the top of the body, otherwise it is not counted.
+"""Straub tail angle, v8 (2026-11-22). User on the day-9 videos: "when it is still straub you said no as mouse watching back side..... you should make correct line of body"; "when mouse is rearing or grooming body is vertical we can not use that frame so not consider that frame for counting for straub or no straub or total frame"; "always try to use Body and tail angle not floor"; 10 frames answered by the user (2 checks). Changes to v6b (straub_angle.py, unchanged):
+  a) BODY = the mouse pixels inside the convex hull of its dark fur (darkness > BODY_FRAC x its own darkness), then opened: a grey reflection / mouse behind the acrylic wall is not body; the lighter belly stays;
+  b) tail THINNESS = 2 x area / perimeter (an arched tail was dropped as too thick); a long piece from the upper half of the body is preferred to a floor / foot piece; a piece leaving the bottom and pointing steeply down (< -50 deg) is a leg (no decision);
+  c) a VERTICAL body (elongation >= VERT_ELONG 1.25, axis within EXCLUDE_DEG 45 of vertical = rearing / grooming) is NOT COUNTED (not Straub, not no-Straub, not in the total; straub_auto_v8.py never fills such frames);
+  d) BODY LINE = from the head end (the body pixels farthest from the tail root) to the tail root; tail angle = between the tail's first part and that line continued past the root (up = positive); Straub = > 25 deg and the tail rising above the floor. The floor line only when the body line is near vertical / short (seen from the front or behind): Straub = > 25 deg above the floor;
+  e) the tail root hidden behind the back: a tail leaving the TOP 10 % of the body = Straub; a tail leaving the upper quarter = Straub when its visible part rises > 10 deg (or goes forward over the back), not Straub when level; a tail from the upper quarter standing > 20 px above the body top and rising > 30 deg = Straub.
+Checked on 31 frames (10 user answers, 2 user drawings of 11-21, 19 eye checks): 28 agree, 1 wrong, 2 unmeasured.
 Everything else as v6b:
 Straub tail angle, v5 (user 11-21: "you can just crop only mouse part and then also increase contrast").
 1. find the mouse on the 640x360 frame (darker than the background by > 40; largest blob);
@@ -46,6 +43,9 @@ REAR_FRAC = 0.4
 SEG = (12, 56)
 STRAUB_DEG, RISE_DEG, FORWARD_DEG = 25.0, 10.0, 135.0
 HIGH_FRAC = 0.25     # tail leaving the body this far above its centre = raised over the back (v6b)
+VIEW_DEG = 35.0      # v8f: body line (head -> tail root) within this of vertical = seen from the front / behind
+LINE_MIN = 0.6       # v8f: body line shorter than this x the body length = not measurable
+VERT_ELONG = 1.25    # v8h: elongation from which a near-vertical body counts as rearing / grooming
 TOP_FRAC = 0.10      # v8e: tail leaving the body in its top 10 % (user 11-22, frames 2/3 vs 5) = raised behind the back
 EXCLUDE_DEG = 45.0   # v8: body axis closer to vertical than this (and elongated) = rearing / grooming, not counted
 BODY_FRAC = 0.6      # v8: body = darkness > this x the mouse's darkness (reflections are 0.3-0.5)
@@ -128,7 +128,7 @@ def measure(gf, bgf):
     # that frame for counting for straub or no straub or total frame"): an elongated body within UPRIGHT_DEG of vertical
     # is not judged at all - not Straub, not no-Straub, not in the total
     vert = abs(float(np.degrees(np.arctan2(abs(axis[0]), abs(axis[1]))))) < EXCLUDE_DEG
-    is_vert = bool(elong >= ELONG_MIN and vert)
+    is_vert = bool(elong >= VERT_ELONG and vert)          # v8h: 1.25 (user 11-22, 2nd check frame 2: sitting up, 1.32)
 
     def not_counted():                                    # rearing / grooming without a clearly raised tail
         res.update(ok=False, axis=axis, why="body vertical (rearing / grooming) - not counted", excluded=True)
@@ -181,58 +181,78 @@ def measure(gf, bgf):
     tdir = (tip - base) / (np.linalg.norm(tip - base) + 1e-9)
     if np.dot(base - c, axis) < 0:
         axis = -axis
-    back = 1.0 if base[0] >= c[0] else -1.0
-    rise = float(np.degrees(np.arctan2(-tdir[1], abs(tdir[0]) + 1e-9)))   # elevation above the horizontal
-    upright = abs(float(np.degrees(np.arctan2(abs(axis[0]), abs(axis[1]))))) < UPRIGHT_DEG
-    if elong < ELONG_MIN or upright:
-        ang, ref = float(np.degrees(np.arctan2(-tdir[1], tdir[0] * back))), ("upright" if upright and elong >= ELONG_MIN else "horizontal")
-    else:
-        a_ax = np.degrees(np.arctan2(-axis[1], axis[0]))
-        a_t = np.degrees(np.arctan2(-tdir[1], tdir[0]))
-        ang = (a_t - a_ax + 180) % 360 - 180
-        if axis[0] < 0:
-            ang = -ang
-        ang, ref = float(ang), "body axis"
+    rise = float(np.degrees(np.arctan2(-tdir[1], abs(tdir[0]) + 1e-9)))   # elevation above the floor line
     ytop, ybot = float(ys.min()), float(ys.max())
     high = bool(base[1] < c[1] - HIGH_FRAC * (ybot - ytop))
-    # v8: a tail leaving the body HIGH (mouse seen from behind, or the tail arched over the back towards the head) is
-    # judged against the horizontal: in 2D the body line of a mouse seen from behind is not defined, and a tail
-    # curling forward over the back is Straub, not 'a piece pointing forward'
-    fwd = float(tdir[0]) * back < 0                        # the tail's first part points towards the head
     relh = float((base[1] - ytop) / max(ybot - ytop, 1.0))  # 0 = top of the body, 1 = bottom
+    # v8f (user 2026-11-22: "always try to use Body and tail angle not floor"; the body line as the user drew it on
+    # 2026-11-21: from the head to the tail ROOT): head end = the body pixels farthest from where the tail leaves the
+    # body; body line = head -> root; tail angle = between the tail's first part and that line continued past the root,
+    # positive towards the back (up). The floor line is used ONLY when the body line cannot be measured in 2D: it lies
+    # within VIEW_DEG of vertical or is short (mouse seen from the front / from behind)
+    d2 = (xs - base[0]) ** 2 + (ys - base[1]) ** 2
+    far = d2 >= np.quantile(d2, 0.97)
+    head = np.array([xs[far].mean(), ys[far].mean()], float)
+    bl = base - head
+    bl_len = float(np.linalg.norm(bl))
+    u = bl / (bl_len + 1e-9)                               # head -> root, continued backwards past the root
+    nrm = np.array([u[1], -u[0]])
+    if nrm[1] > 0:
+        nrm = -nrm                                         # the normal pointing up (towards the back)
+    body_ang = float(np.degrees(np.arctan2(float(tdir @ nrm), float(tdir @ u))))
+    line_vert = abs(float(np.degrees(np.arctan2(abs(u[0]), abs(u[1]))))) < VIEW_DEG
+    line_ok = bool((not line_vert) and bl_len >= LINE_MIN * 2 * half)
+    res.update(head=head, body_line_ok=line_ok)
     if is_vert:
-        # v8e (user 11-22, frame 4: "rearing but I can see its straub"): a vertical body counts only when the tail is
-        # clearly raised - it rises steeply and reaches above the top of the body; otherwise not counted
-        if rise > 45.0 and float(ty.min()) < ytop - 5:
-            res.update(ok=True, base=base, tdir=tdir, axis=axis, body_axis=axis, angle=float(rise), rise=rise,
-                       ref="vertical body, tail raised above it", tail_len=blen, why="", straub=True, high_start=high,
-                       tail_mask=(lt == best), relh=relh)
-            return res
+        # v8h (user 11-22, 2nd check frame 2: vertical body with the tail raised = "do not count"; the user's rule:
+        # "when mouse is rearing or grooming body is vertical ... not consider that frame"): a vertical body is never
+        # counted, whatever the tail does (the v8e exception for a raised tail, from the 1st check frame 4 "rearing but
+        # I can see its straub", is withdrawn - the two answers are the same case)
         return not_counted()
     if relh <= TOP_FRAC and rise > -10:
         # v8e (user 11-22, frames 2 / 3 Straub vs 5 not): a tail leaving the TOP of the body comes from behind / over
         # the back = Straub even when its visible part runs level
-        res.update(ok=True, base=base, tdir=tdir, axis=np.array([1.0, 0.0]), body_axis=axis, angle=float(rise),
-                   rise=rise, ref="horizontal (tail leaves the top of the body)", tail_len=blen, why="", straub=True,
-                   high_start=True, tail_mask=(lt == best), relh=relh)
+        res.update(ok=True, base=base, tdir=tdir, axis=u if line_ok else np.array([1.0, 0.0]), body_axis=axis,
+                   angle=float(body_ang if line_ok else rise), rise=rise, ref="tail leaves the top of the body",
+                   tail_len=blen, why="", straub=True, high_start=True, tail_mask=(lt == best), relh=relh)
         return res
-    if high:
-        ang, ref = rise, "horizontal (tail leaves the body high)"
-        if rise <= -10:
-            res["why"] = "piece points down from high on the body (not a tail)"
-            return res
-        # v6b rule kept for a tail going over the back (forward) or rising; v8: a LEVEL tail held straight BACK from a
-        # hunched body (rise <= 10 deg, pointing away from the head) is not Straub (day-9 check, white 201.2 s)
-        straub = bool(fwd or rise > RISE_DEG)
-    else:
-        # v8: a piece that rises steeply (> 45 deg) from the body is a tail even if it leans forward over the back
-        # (day-9 check, green2 298.9 s); only a low / level piece pointing forward is 'not a tail'
-        if abs(ang) > FORWARD_DEG and rise < 45.0:
+    if relh > 0.8 and rise < -50.0:
+        # v8g: a piece leaving the bottom of the body and pointing steeply down is a leg / foot, not the tail (day-9
+        # check, green1 19.4 s: the blurred tail was not found and a foot was measured) - no decision for this frame
+        res["why"] = "piece points down from the bottom (a leg, not the tail)"
+        return res
+    if relh < HIGH_FRAC and float(ty.min()) < ytop - 20 and rise > 30.0:
+        # v8g: a tail leaving the upper body and standing above the top of the body = raised above the back (day-9
+        # check, green1 52.1 s: mouse seen from behind, tail straight up, the body line was not the real one)
+        res.update(ok=True, base=base, tdir=tdir, axis=u if line_ok else np.array([1.0, 0.0]), body_axis=axis,
+                   angle=float(body_ang if line_ok else rise), rise=rise, ref="tail raised above the back",
+                   tail_len=blen, why="", straub=True, high_start=True, tail_mask=(lt == best), relh=relh)
+        return res
+    if relh < HIGH_FRAC and rise > -10:
+        # v8h (user answers 11-22: 1st check frame 5 = level tail from the upper body NOT Straub; 2nd check frame 4 =
+        # tail from the upper body rising 12 deg = Straub): a tail leaving the UPPER quarter of the body has its root
+        # hidden behind the back, so the angle to the body line cannot be read from the visible part; the visible
+        # part rising (> 10 deg above the floor) or going forward over the back = lifted from the root = Straub
+        fwd = float((tdir @ u)) < 0 if line_ok else False
+        straub = bool(rise > RISE_DEG or fwd)
+        res.update(ok=True, base=base, tdir=tdir, axis=u if line_ok else np.array([1.0, 0.0]), body_axis=axis,
+                   angle=float(rise), rise=rise, ref="tail leaves the upper body (root hidden): rise", tail_len=blen,
+                   why="", straub=straub, high_start=True, tail_mask=(lt == best), relh=relh)
+        return res
+    if line_ok:
+        # body line and tail angle (the user's measure): Straub = the tail raised > 25 deg above the body line continued
+        # past the root, and rising above the floor (a tail lying on the floor is not Straub)
+        ang, ref = body_ang, "body line (head to tail root)"
+        if abs(ang) > FORWARD_DEG and not (ang > 0 and rise > 45.0):
             res["why"] = "piece points forward (not a tail)"
             return res
-        straub = bool((ang > STRAUB_DEG or abs(ang) > FORWARD_DEG) and rise > RISE_DEG)
-    # the line drawn = the reference actually used (horizontal unless the body axis was used)
-    draw_axis = axis if ref == "body axis" else np.array([1.0, 0.0])
+        straub = bool(ang > STRAUB_DEG and rise > RISE_DEG)
+        draw_axis = u
+    else:
+        # no body line in 2D (seen from the front / behind): the floor line; a steep tail = more than 25 deg (user)
+        ang, ref = rise, "floor (no body line: seen from the front / behind)"
+        straub = bool(rise > STRAUB_DEG)
+        draw_axis = np.array([1.0, 0.0])
     res.update(ok=True, base=base, tdir=tdir, axis=draw_axis, body_axis=axis, angle=float(ang), rise=rise, ref=ref,
                tail_len=blen, why="", straub=straub, high_start=high, tail_mask=(lt == best), relh=relh)
     return res

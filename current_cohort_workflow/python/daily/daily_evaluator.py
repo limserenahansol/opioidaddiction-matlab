@@ -91,9 +91,11 @@ UNNAMED = re.compile(r"^(\d{4}-\d{2}-\d{2})_\d{2}-\d{2}-\d{2}\.(mp4|avi|mov)$", 
 def who(name: str):
     """(cage, mouse, day) shown in a file name: cage + colour anywhere ('9670fgreen' = green1), 'dayN' anywhere"""
     s = name.lower()
-    m = re.search(r"(?<!\d)(\d{4}[mf]).*?(green1|green2|green|white|black)", s)
+    m = re.search(r"(?<!\d)(\d{4})([mf])?.*?(green1|green2|green|white|black)", s)
     d = re.search(r"day\s*_?(\d+)", s)
-    cage, mouse = (m.group(1), "green1" if m.group(2) == "green" else m.group(2)) if m else (None, None)
+    cages = {c[:4]: c for c, _ in MICE}                  # '9669' without the sex letter = 9669m (2026-11-22 names)
+    cage = (m.group(1) + m.group(2) if m.group(2) else cages.get(m.group(1))) if m else None
+    mouse = ("green1" if m.group(3) == "green" else m.group(3)) if m else None
     return cage, mouse, (int(d.group(1)) if d else None)
 
 
