@@ -121,6 +121,18 @@ def decisions():
     return out
 
 
+def early_stops():
+    """{(day, cage, mouse)} of the sessions listed in sync/video_offsets.csv (added 2026-11-22, day 9 9670f green1: camera
+    + Saleae stopped before the task ended; the user: "just align to start position and rest last part leave what it
+    is"). An option per listed session: their early-stop check items are explained, not red. Missing file = none."""
+    out = set()
+    for r in CC.read_rows(P / "sync" / "video_offsets.csv", warn=None, need=("day",)):
+        parts = str(r.get("day", "")).strip().replace("\\", "/").split("/")
+        if len(parts) == 3 and parts[0].lower().startswith("day") and parts[0][3:].isdigit():
+            out.add(CC.norm_key(parts[0][3:], parts[1], parts[2]))
+    return out
+
+
 def pupil_check_out():
     """{(day, cage, mouse): % of frames out} from analysis/pupil_check/pupil_check_day*.csv (pupil_check_examples.py,
     added 2026-11-18: held + jumps + odd size of the pupil the tables use; the newest file wins). Empty if none."""
@@ -193,6 +205,26 @@ def one_session(s, d, c, m, q, pr, keys):
                 handled.add(it)
     else:
         frames_txt = "frames = pulses"
+    # 2026-11-22 (day 9, 9670f green1): camera + Saleae stopped before the task ended (the user's mistake); the user:
+    # "just align to start position and rest last part leave what it is". A session listed in sync/video_offsets.csv
+    # has the start-aligned table, so its early-stop check items are an approved option, not red 'not explained'
+    if key in keys.get("early_stop", set()):
+        es = {"F frames", "F capture end", "F video closed"} & set(items)
+        t_h = texts.get("H sync", "")
+        if "H sync" in items and t_h and all(("camera pulses stop" in w or "video offset set by hand" in w
+                                              or "already HIGH when the capture started" in w)
+                                             for w in t_h.split("[WARN]")[1:]):
+            es.add("H sync")
+        cend = pd.to_numeric(getattr(s, "clock_end_s", np.nan), errors="coerce")
+        early_s = -float(cend) if pd.notna(cend) else np.nan
+        vf, cp = num(getattr(s, "video_frames", np.nan)), num(getattr(s, "camera_pulses", np.nan))
+        F.append((1, "early_stop", f"stopped {early_s:.0f} s early" if np.isfinite(early_s) else "early stop",
+                  (f"camera + Saleae stopped {early_s:.0f} s before the task ended" if np.isfinite(early_s) else
+                   "camera + Saleae stopped before the task ended") + f" (video {vf} frames, camera pulses {cp}); "
+                  "start-aligned table (frame k = pulse k), the end left empty - your decision 11-22"))
+        frames_txt = f"early stop: video {vf} frames, pulses {cp} (start-aligned)"
+        flags.append("early stop")
+        handled |= es
     if "F clock" in items and "PC clock changed" in texts.get("F clock", ""):
         F.append((1, "clock", "PC clock jump", "PC clock jumped during the session (Windows time sync); the sync uses "
                   "the camera train"))
@@ -331,7 +363,7 @@ def main(argv=None):
     Q = pd.read_csv(qf, dtype={"cage": str}) if qf.exists() else pd.DataFrame(columns=["day", "cage", "mouse"])
     keys = {"sync_fix": CC.approved_sessions(root, CC.LISTS[CC.SYNC]),
             "behavior_only": CC.approved_sessions(root, "behavioronly_sessions.csv"), "open": open_issues(),
-            "decisions": decisions(), "pupil_out": pupil_check_out(),
+            "decisions": decisions(), "pupil_out": pupil_check_out(), "early_stop": early_stops(),
             "pupil_days": set(pd.to_numeric(Q["day"], errors="coerce").dropna().astype(int)) if len(Q) else set()}
     PRS = {}
     for d in days:

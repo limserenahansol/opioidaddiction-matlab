@@ -76,6 +76,9 @@ CAT = {
     "lick_valve_close": ("Lick counted at valve close (Arduino re-trigger, lock-out 0.20 s)",
                          "Lock-out 0.22 s since then; none counted at 0.22 s", "fixed"),
     "no_video": ("No video saved", "Behaviour-only table (you approved); pupil left empty", "approved"),
+    # 2026-11-22 (day 9, 9670f green1; sessions listed in sync/video_offsets.csv)
+    "early_stop": ("Camera + Saleae stopped before the task ended", "Start-aligned table (frame k = camera pulse k), "
+                   "the end left empty (your decision 11-22); task log complete", "approved"),
     "whole_eye": ("Eye damage: the pupil is not visible", "Whole eye instead of the pupil (you approved 11-17)",
                   "approved"),
     "length": ("Session longer than 15 min 10 s", "All daily metrics use the first 15 min 10 s", "noted"),
@@ -95,7 +98,7 @@ CAT = {
                       "Runs next: eye boxes, the pupil package and the whole eye, then the pupil check", "noted"),
 }
 SHOW_SHORT = {"frames", "frames_open", "length", "off_eye", "off_eye_kept", "licks_extra", "lick_start", "lick_valve_close",
-              "lick_late", "lick_unknown", "pupil_noisy", "rewards", "filename", "check_open"}
+              "lick_late", "lick_unknown", "pupil_noisy", "rewards", "filename", "check_open", "early_stop"}
 
 
 def off_eye_decisions_text():
@@ -236,16 +239,24 @@ def assays_slide(prs, blank, N, foot):
     if not f.exists():
         return False
     A = pd.read_csv(f, dtype={"cage": str})
+    # 2026-11-22 (day 9 = the first Straub day; the deck had no Straub yet): the automatic Straub tail of the day from
+    # straub_day.py (analysis\days\dayN\straub_dayN.csv; v8: tail vs the body line head -> tail root, > 25 deg; a
+    # vertical body = rearing / grooming is not counted), shown when the day has Straub videos
+    sf = DAYS_DIR / f"day{N}" / f"straub_day{N}.csv"
+    ST = pd.read_csv(sf, dtype={"cage": str}) if sf.exists() else None
     s = prs.slides.add_slide(blank)
-    MS.add_title(s, f"Assays day {N}: tail immersion · TST · hot plate",
+    MS.add_title(s, f"Assays day {N}: tail immersion · TST · hot plate" + (" · Straub tail" if ST is not None else ""),
                  "TI = the latency you sent (s) · TST = automatic, first 3 min, with a per-frame mouse check · "
                  "HOT = your hand score, first 30 s" +
-                 ("" if N in TST_HP_DAYS else " · TST and hot plate only on days 5, 10, 13, 16, 18"))
+                 ("" if N in TST_HP_DAYS else " · TST and hot plate only on days 5, 10, 13, 16, 18") +
+                 (" · Straub = automatic, first 5 min (tail > 25° from the body line; rearing / grooming not counted)"
+                  if ST is not None else ""))
     hot_cols = [c for c in A.columns if c.startswith("hot_pct_")]
     names = [c.replace("hot_pct_", "").replace("_", " ") for c in hot_cols]
-    header = ["Mouse", "TI (s)", "TST non-moving", "TST check"] + [f"HOT {n}" for n in names]
-    rest = 12.33 - 1.45 - 0.8 - 1.2 - 2.1
-    widths = [1.45, 0.8, 1.2, 2.1] + [rest / max(1, len(hot_cols))] * len(hot_cols)
+    st_head, st_w = (["Straub (auto)", "Straub check"], [1.1, 2.45]) if ST is not None else ([], [])
+    header = ["Mouse", "TI (s)", "TST non-moving", "TST check"] + st_head + [f"HOT {n}" for n in names]
+    rest = 12.33 - 1.45 - 0.8 - 1.2 - 2.1 - sum(st_w)
+    widths = [1.45, 0.8, 1.2, 2.1] + st_w + [rest / max(1, len(hot_cols))] * len(hot_cols)
 
     def cell(txt, ok=True, warn=False):
         st = "red" if not ok else ("yellow" if warn else "green")
@@ -275,6 +286,13 @@ def assays_slide(prs, blank, N, foot):
             tst_cells = [("no TST today", "F2F4F7", MUTED, False), ("-", "F2F4F7", MUTED, False)]
         row = [(f"{c} {m}", "FFFFFF", TEXT, True), cell(f"{ti:.2f}" if ti == ti else "missing", ti == ti),
                *tst_cells]
+        if ST is not None:
+            q = ST[(ST.cage == c) & (ST.mouse == m)]
+            q = q.iloc[0].to_dict() if len(q) else {}
+            sp, ms_, vt = (num(q.get("auto_straub_pct")), num(q.get("auto_measured_pct")),
+                           num(q.get("auto_vertical_not_counted_pct")))
+            row += [cell(f"{sp:.1f} %" if sp == sp else "missing", sp == sp),
+                    cell(f"tail measured {ms_:.0f} % · vertical {vt:.0f} %" if sp == sp else "-", sp == sp)]
         hot_ok = str(r.get("hot_file", "")) not in ("", "nan")
         for hc in hot_cols:
             v = num(r.get(hc))
@@ -286,7 +304,9 @@ def assays_slide(prs, blank, N, foot):
                 f"cell B1 · TST: ManualScoringResults_*_TST_day{N}_AUTO.mat · HOT: ManualScoringResults_*_HOT_day{N}_"
                 f"first30s.mat) · TST examples: analysis\\tst\\day{N}\\examples\\ · table: analysis\\days\\day{N}\\"
                 f"assays_day{N}.csv · yellow = the camera moved during that TST video; the moved frames were aligned "
-                "before scoring", size=10, color=MUTED, name="Assays note")
+                "before scoring" + (f" · Straub: analysis\\days\\day{N}\\straub_day{N}.csv, frames + traces in "
+                                    f"analysis\\straub_auto\\day{N}\\ (vertical = rearing / grooming frames, not counted)"
+                                    if ST is not None else ""), size=10, color=MUTED, name="Assays note")
     MS.add_footer(s, foot)
     return True
 
@@ -309,7 +329,9 @@ def pr_slide(prs, blank, days, foot, Tb):
                  "rewards in the first 15 min 10 s · P = passive: R = drops delivered; small line = its partner's R "
                  "and PR")
     tasks = {d: PT.day_type(Tb, d) for d in days}
-    two = len(days) <= 8
+    # 2026-11-22 (day 9): the small second line (passive: the partner's R and PR, user 11-19 "네, 같이 적기"; PR: rewards)
+    # was dropped from day 9 on (two = days <= 8); it now stays up to 12 days with smaller text, then 1 line
+    two = len(days) <= 12
     w0, w1 = 1.6, 0.95
     wd = (12.33 - w0 - w1) / len(days)
     nrow = len(MICE) + 3
@@ -322,11 +344,11 @@ def pr_slide(prs, blank, days, foot, Tb):
         t.columns[j + 2].width = Inches(wd)
     t.rows[0].height = Inches(0.34)
     for j, h in enumerate(["Mouse", "Group"] + [f"Day {d} · {tasks[d]}" for d in days]):
-        MS.style_cell(t.cell(0, j), [[(h, {"bold": True, "color": "FFFFFF"})]], NAVY, size=10 if two else 8,
+        MS.style_cell(t.cell(0, j), [[(h, {"bold": True, "color": "FFFFFF"})]], NAVY, size=10 if len(days) <= 8 else 8,
                       align=PP_ALIGN.CENTER if j >= 2 else PP_ALIGN.LEFT)
     prv = Tb.pr.dropna()
     lo, hi = (prv.min(), prv.max()) if len(prv) else (0, 1)
-    big, small = (12, 8) if two else (9, 7)
+    big, small = (12, 8) if len(days) <= 8 else ((10, 7) if two else (9, 7))
     for i, (c, m) in enumerate(MICE, start=1):
         t.rows[i].height = Inches(rh)
         g = Tb[(Tb.cage == c) & (Tb.mouse == m)]
@@ -607,10 +629,16 @@ def build(days, out: Path, pupil_days=None):
     has_vid = S.video.astype(str).str.strip().ne("") & S.video.notna()
     feq = int(((S.frames_minus_pulses == 0) & has_vid).sum())
     fneq = int(((S.frames_minus_pulses != 0) & S.frames_minus_pulses.notna() & has_vid).sum())
+    # 2026-11-22: a listed early stop (sync/video_offsets.csv) has no frames-minus-pulses value (video ended early)
+    es_keys = QS.early_stops()
+    n_es = int(sum(1 for r in S.itertuples() if (int(r.day), str(r.cage).lower(), str(r.mouse).lower()) in es_keys
+                   and pd.isna(r.frames_minus_pulses)))
+    es_txt = f" · {n_es} start-aligned" if n_es else ""
     cards = [(f"{n}", "sessions checked", f"days {days[0]}–{N}, 8 mice a day", NAVY),
              (f"{nr}", "red = needs a look", f"green {n - nr - ny} · yellow {ny} (known / fixed)", "B42318"),
              (f"{rew_ok}/{n}", "rewards Python = Saleae", "valve openings vs reward commands", "1E6B34"),
-             (f"{feq}+{fneq}", "video frames = pulses", f"+{fneq} fixed · {int((~has_vid).sum())} without video", "557A9E")]
+             (f"{feq}+{fneq + n_es}", "video frames = pulses",
+              f"+{fneq} fixed{es_txt} · {int((~has_vid).sum())} without video", "557A9E")]
     for k, (big, lab, sub, col) in enumerate(cards):
         MS.stat_card(s, 0.5 + k * 3.13, 1.45, 3.0, 1.1, big, lab, sub, col, f"Card {k + 1}")
     # today
@@ -759,7 +787,7 @@ def build(days, out: Path, pupil_days=None):
 
     # ---- 3b assays of the day (TI, TST, HOT), when there are any
     if has_assays:
-        block("assays (TI, TST, HOT)")
+        block("assays (TI, TST, HOT" + (", Straub)" if (DAYS_DIR / f"day{N}" / f"straub_day{N}.csv").exists() else ")"))
         assays_slide(prs, blank, N, foot)
 
     # ---- 4 pupil check per session + overview picture(s) (added 2026-11-18)
@@ -768,9 +796,6 @@ def build(days, out: Path, pupil_days=None):
 
     # ---- 5 data problems and what was done
     block("data problems and fixes")
-    s = prs.slides.add_slide(blank)
-    MS.add_title(s, "Data problems found and what was done",
-                 f"From the QC of days {days[0]}–{N}; one row per kind of problem (sessions: day and detail)")
     rows = []
     groups = []
     for cat, g in I[I.cat.isin(CAT)].groupby("cat", sort=False):
@@ -788,11 +813,26 @@ def build(days, out: Path, pupil_days=None):
         rows.append([(prob, "FFFFFF", TEXT, True), (sess, "FFFFFF", TEXT, False), (done, "FFFFFF", TEXT, False),
                      (lab, fill, col, True)])
     size = 10 if len(rows) <= 12 else 9
-    h = table(s, 0.5, 1.42, [3.55, 4.3, 3.28, 1.2], ["Problem", "Sessions", "What was done", "Status"], rows,
-              "Problems table", size=size)
-    if 1.42 + h > 6.9:
-        print(f"  !! slide 3 table may run off the slide (estimated {h:.1f} in)")
-    MS.add_footer(s, f"Source: analysis\\days\\qc_issues_{tag}.csv (qc_summary.py) · {foot}")
+    # 2026-11-22 (day 9: 16 rows ran off the slide): as many slides as needed (k/n), same height estimate as table()
+    widths = [3.55, 4.3, 3.28, 1.2]
+    pages, cur, used = [], [], 0.32
+    for r in rows:
+        hh = max(0.27, 0.07 + 0.165 * max(MS.text_lines(c[0], w, size) for c, w in zip(r, widths)) * size / 10)
+        if cur and used + hh > 6.9 - 1.42:
+            pages.append(cur)
+            cur, used = [], 0.32
+        cur.append(r)
+        used += hh
+    pages.append(cur)
+    for k, part in enumerate(pages):
+        s = prs.slides.add_slide(blank)
+        MS.add_title(s, "Data problems found and what was done" + (f" ({k + 1}/{len(pages)})" if len(pages) > 1 else ""),
+                     f"From the QC of days {days[0]}–{N}; one row per kind of problem (sessions: day and detail)")
+        h = table(s, 0.5, 1.42, widths, ["Problem", "Sessions", "What was done", "Status"], part, "Problems table",
+                  size=size)
+        if 1.42 + h > 6.9:
+            print(f"  !! data problems table may run off the slide (estimated {h:.1f} in)")
+        MS.add_footer(s, f"Source: analysis\\days\\qc_issues_{tag}.csv (qc_summary.py) · {foot}")
 
     # ---- 6 routine problems fixed
     block("routine problems fixed")
