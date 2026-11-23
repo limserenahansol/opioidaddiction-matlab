@@ -224,6 +224,22 @@ MIN_SESSION_S = 120          # shorter Python runs are tests / aborted
 DEEP_MAX = 25                # max folder depth followed for folders changed on the searched day
 ALIAS_FILE = PROJECT / "session_aliases.csv"   # optional: session,cage,mouse (exact Python log name -> folder)
 CAM_HZ = 30.26
+EARLY_STOP_FILE = PROJECT / "sync" / "video_offsets.csv"   # 2026-11-22: listed early stops (see early_stop_sessions)
+
+
+def early_stop_sessions() -> set:
+    """(dayN/<cage>/<mouse>, log name) of the sessions listed in sync/video_offsets.csv (added 2026-11-22: day 9 9670f
+    green1, the camera + Saleae were stopped ~1 min before the task ended; user: "just align to start position and rest
+    last part leave what it is"). Their Saleae CSV has FEWER camera pulses than the session length, so the CSV choice in
+    pair_day accepts a short pulse count for these listed sessions only (an option per session, not a rule for all)."""
+    res = set()
+    try:
+        with open(EARLY_STOP_FILE, newline="", encoding="utf-8-sig") as f:
+            for r in csv.DictReader(f):
+                res.add(((r.get("day") or "").strip().lower(), (r.get("session") or "").strip().lower()))
+    except OSError:
+        pass
+    return res
 
 
 # ----------------------------------------------------------------------------- small helpers
@@ -488,11 +504,13 @@ def pair_day(found, ff, log):
     # like the log, or the session's own project folder salae/dayN/<cage>/<mouse>/), (b) a CSV whose lick onsets in
     # the session agree with the Python log's lick / observed_lick records, (c) the CSV saved soonest after the
     # session ended; a CSV saved more than 60 s before the session ended comes last.
+    early = early_stop_sessions()
     for s in real:
         best = None
         n_rew, dur = s["py"]["rewards"], s["py"]["dur"]
         py_end = s["py"]["start"] + dur
         nm = s["py"]["name"].lower()
+        short_ok = (f"day{s['day']}/{s['cage']}/{s['mouse']}".lower(), nm) in early   # listed early stop (2026-11-22)
         try:
             own = (PROJECT / "salae" / f"day{s['day']}" / s["cage"] / s["mouse"]).resolve()
         except Exception:   # noqa: BLE001
@@ -505,7 +523,9 @@ def pair_day(found, ff, log):
             if abs(len(in_sess) - n_rew) > max(2, 0.03 * n_rew):
                 continue
             if abs(x["n_cam"] - dur * CAM_HZ) > max(60, 0.03 * dur * CAM_HZ):
-                continue
+                # a listed early stop may have FEWER pulses (camera + Saleae stopped before the task ended), not more
+                if not (short_ok and 0.5 * dur * CAM_HZ <= x["n_cam"] < dur * CAM_HZ):
+                    continue
             named = nm in str(x["path"]).lower() or (own is not None and x["path"].parent.resolve() == own)
             lk = x.get("licks")
             if lk is not None and py_lk is not None:
@@ -532,6 +552,9 @@ def pair_day(found, ff, log):
                 best = (score, x, n_lk, lick_bad)
         if best:
             s["csv"] = best[1]; used.add(id(best[1]))
+            if short_ok and abs(best[1]["n_cam"] - dur * CAM_HZ) > max(60, 0.03 * dur * CAM_HZ):
+                s["problems"].append(f"listed early stop (sync/video_offsets.csv): the Saleae CSV has {best[1]['n_cam']} "
+                                     f"camera pulses for a {dur:.0f}-s session (about {dur * CAM_HZ:.0f}); aligned to the start")
             if best[3]:
                 s["problems"].append(f"CHECK: the chosen Saleae CSV has {best[2]} lick onsets in the session but the "
                                      f"Python log has {py_lk} lick records - it may belong to another session")
