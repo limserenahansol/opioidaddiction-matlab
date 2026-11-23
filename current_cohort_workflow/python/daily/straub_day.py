@@ -21,7 +21,10 @@ For day N, like the HOT step of assays_day.py (that file is not changed):
       cd('<project>/tools/opioidaddiction-matlab/current_cohort_workflow/matlab')
       manual_scoring_video_multibehavior_speed('<project>/straub_video/day<N>_first5min', 1)
  3. FILING: output/ManualScoringResults_*.mat -> assays/day<N>/<cage>/<mouse>/ (the name keeps 'straub').
- 4. AUTOMATIC (added 2026-11-21 after the user confirmed it on an annotated video; skip with --no-auto): straub_auto.py
+ 4. AUTOMATIC (added 2026-11-21 after the user confirmed it on an annotated video; skip with --no-auto): straub_auto_v8.py
+    since 2026-11-22 (v8: body = dark fur hull, so a reflection is not body; curved tails kept; a tail leaving the top of
+    the body = Straub; a vertical body = rearing / grooming is NOT COUNTED unless the tail is clearly raised above it -
+    user rules and 5 answered frames of 2026-11-22; v6b = straub_auto.py / straub_angle.py, kept)
     on every scoring copy -> analysis/straub_auto/day<N>/ (per-frame tail angle; Straub = > 25 deg from the body axis,
     or the tail raised over the back; 0.5-s majority). Shown next to the hand score, never instead of it.
  5. TABLE: analysis/days/day<N>/straub_day<N>.csv: seconds scored, straub_pct (key 'a'), straub_free_pct (no key),
@@ -166,8 +169,8 @@ def auto_step(day: int, sdir: Path, apply: bool, log: list):
         if not apply:
             log.append(f"  would run the automatic Straub tail on {v.name}")
             continue
-        import straub_auto as SAU
-        S = SAU.run(v, out, None)
+        import straub_auto_v8 as SAU      # v8 since 2026-11-22 (user: correct body line for a mouse seen from behind,
+        S = SAU.run(v, out, None)         # vertical body = rearing / grooming not counted; 5 frames answered)
         log.append(f"  automatic Straub tail {v.name}: {S['straub_pct']} % (angle measured in {S['measured_pct']} % of "
                    f"frames) -> {js.relative_to(P).as_posix()}")
 
@@ -195,6 +198,7 @@ def table(day: int, mice, log: list):
             if au:
                 r["auto_straub_pct"] = au.get("straub_pct")
                 r["auto_measured_pct"] = au.get("measured_pct")
+                r["auto_vertical_not_counted_pct"] = au.get("excluded_vertical_pct")
             adir = P / "assays" / f"day{day}" / cage / mouse
             f = sorted(adir.glob("ManualScoringResults*straub*.mat")) if adir.exists() else []
             r["straub_file"] = f[-1].name if f else ""
