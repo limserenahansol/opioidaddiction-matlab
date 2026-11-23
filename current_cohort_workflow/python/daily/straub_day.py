@@ -65,7 +65,25 @@ def parse(name: str, mice: dict):
     return "straub" in low, cage, color, day
 
 
+NAME_FIXES = P / "straub_video" / "name_fixes.csv"   # added 2026-11-22: opt-in list of recordings saved under a wrong name
+
+
+def name_fixes() -> dict:
+    """{original file name (lower case): (cage folder, mouse folder, day)} for the rows of straub_video/name_fixes.csv
+    with an 'approved' cell (a recording the user said was saved under the wrong mouse name; the original is never
+    renamed, its copy gets the right name). Added 2026-11-22 (user: '9670f_green2Straub_prday9.mp4 ... this is green1')"""
+    if not NAME_FIXES.exists():
+        return {}
+    out = {}
+    with open(NAME_FIXES, newline="", encoding="utf-8-sig") as fh:
+        for r in csv.DictReader(fh):
+            if (r.get("approved") or "").strip() and (r.get("file") or "").strip():
+                out[r["file"].strip().lower()] = (r["cage"].strip(), r["mouse"].strip(), int(r["day"]))
+    return out
+
+
 def arrange(day: int, srcs, mice, apply: bool, log: list):
+    fixes = name_fixes()
     for src in srcs:
         if not src.is_dir():
             continue
@@ -73,7 +91,11 @@ def arrange(day: int, srcs, mice, apply: bool, log: list):
         for v in sorted(cands):
             if v.suffix.lower() not in AD.VIDEO_EXT:
                 continue
-            ok, cage, mouse, d = parse(v.stem, mice)
+            fx = fixes.get(v.name.lower())
+            if fx is not None:                            # listed in name_fixes.csv: the user's mouse, copy renamed
+                ok, (cage, mouse, d) = True, fx
+            else:
+                ok, cage, mouse, d = parse(v.stem, mice)
             if not ok or d != day:
                 continue
             if cage is None or mouse is None:
@@ -82,7 +104,10 @@ def arrange(day: int, srcs, mice, apply: bool, log: list):
             if time.time() - v.stat().st_mtime < 120:
                 log.append(f"  {v.name}: written less than 2 min ago (still recording?) - next run")
                 continue
-            dst = P / "straub_video" / f"day{day}" / cage / mouse / v.name
+            dst = P / "straub_video" / f"day{day}" / cage / mouse / (
+                f"{cage}{mouse}_straub_day{d}{v.suffix.lower()}" if fx is not None else v.name)
+            if fx is not None:
+                log.append(f"  {v.name}: name fixed by name_fixes.csv -> {cage} {mouse} day {d}")
             if AD.same_file(v, dst):
                 continue
             if dst.exists():

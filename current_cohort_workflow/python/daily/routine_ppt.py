@@ -658,6 +658,13 @@ def build(days, out: Path, pupil_days=None):
     lines.append([("QC today: ", {"bold": True}),
                   (f"{len(qn)} sessions · green {int((qn.status == 'green').sum())}, yellow "
                    f"{int((qn.status == 'yellow').sum())}, red {int((qn.status == 'red').sum())}", {})])
+    # independent evaluator of the day (2026-11-22, daily_evaluator.py): files read right? QC right? analysis right?
+    evf = DAYS_DIR / f"day{N}" / f"evaluator_day{N}.csv"
+    EV = pd.read_csv(evf, dtype=str, encoding="utf-8-sig").fillna("") if evf.exists() else pd.DataFrame()
+    if len(EV):
+        c = EV.status.value_counts().to_dict()
+        lines.append([("Evaluator: ", {"bold": True}),
+                      (f"{c.get('FAIL', 0)} FAIL · {c.get('WARN', 0)} look · {c.get('PASS', 0)} ok (independent re-read)", {})])
     box(s, 0.5, 2.8, 6.1, 3.0, f"Today (day {N})", lines, NAVY, "Today box")
     dec = []
     for cat in ("off_eye", "open_issue", "rewards", "frames_open", "no_video_open", "lick_unknown", "check_open",
@@ -666,6 +673,9 @@ def build(days, out: Path, pupil_days=None):
         if len(g):
             prob = CAT[cat][0] or g.short.iloc[0]
             dec.append([(prob + ": ", {"bold": True}), (sess_text(g, cat), {})])
+    for r in (EV[EV.status == "FAIL"].head(4).itertuples() if len(EV) else []):
+        dec.append([(f"Evaluator FAIL {r.check}: ", {"bold": True}),
+                    ((("day" if r.cage == "-" else f"{r.cage} {r.mouse}") + " - " + r.detail)[:140], {})])
     NS = MS.read_csv(DAYS_DIR / "next_steps.csv")
     for r in NS[(NS.get("who", pd.Series(dtype=str)) == "you") & (NS.get("status", "") == "open")].itertuples() \
             if len(NS) else []:
@@ -681,6 +691,14 @@ def build(days, out: Path, pupil_days=None):
 
     def block(label):
         toc.append((len(prs.slides) + 1, label))
+
+    # ---- 1b independent evaluator (2026-11-22): one picture, checks x mice, FAIL / look items listed under it
+    evp = DAYS_DIR / f"day{N}" / f"evaluator_day{N}.png"
+    if evp.exists():
+        block("Evaluator")
+        MS.image_slide(prs, evp, f"Evaluator · day {N} · independent re-read of the raw files",
+                       "A files read right? (names, dates, pairs, copies) · B QC right? (sync, alignment, pupil numbers, "
+                       "verdicts) · C analysis right? (PR, passive, rewards, TI, Straub, Step 02) · tools\\daily_evaluator.py")
 
     # ---- 2 PR score per mouse and day (all days so far; added 2026-11-18)
     block("PR per day")

@@ -962,6 +962,16 @@ def main(argv=None):
         print("\n=== DATA INDEX ===")
         if subprocess.run([sys.executable, "-B", str(TOOLS / "data_index.py"), "--quiet"]).returncode:
             print("  !! data_index.py could not finish (see above)")
+        # independent EVALUATOR (added 2026-11-22, user: "I sometimes find you read wrongly file so please alsway every day
+        # please make evaluator whether you read file correctly, and QC correctly and analysiscorrectly"): the raw files
+        # are read again with its own small readers and compared with the routine's outputs (files, QC, analysis);
+        # report only. Before the deck, which shows it right after the overview (FAIL items in 'Needs your decision')
+        print("\n=== EVALUATOR (independent check: files read right? QC right? analysis right?) ===")
+        rc_ev = subprocess.run([sys.executable, "-B", str(TOOLS / "daily_evaluator.py"), "--day", str(dn)]).returncode
+        if rc_ev == 1:
+            print(f"  !! FAIL items above (analysis\\days\\day{dn}\\evaluator_day{dn}.txt): look before using the day")
+        elif rc_ev:
+            print("  !! daily_evaluator.py could not finish (see above)")
         # routine PowerPoint (added 2026-11-17, user: "PPT: QC, problem fixed, folder address ... representative plots
         # as fundamental, what to do better next"): analysis\\ppt\\routine_dayN_<date>.pptx
         if not args.no_ppt:
