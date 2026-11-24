@@ -249,10 +249,21 @@ def build(project: Path) -> pd.DataFrame:
             X.add(g, f"master_{stem}", "all", final="yes", note="rebuilt from the per-session files every day")
     for pat, kind in (("qc_summary_days*.csv", "qc_summary"), ("qc_issues_days*.csv", "qc_issues"),
                       ("pr_table_days*.csv", "pr_table"),           # pr_table: pr_table_days.py (2026-11-18)
-                      ("ti_table_days*.csv", "ti_table")):          # ti_table: ti_table_days.py (2026-11-20)
+                      ("ti_table_days*.csv", "ti_table"),           # ti_table: ti_table_days.py (2026-11-20)
+                      # 2026-11-23: results picture numbers, day 5 vs day N assays, PR relationships (both cohorts)
+                      ("results_days*.csv", "results_table"), ("assay_compare_days*.csv", "assay_compare"),
+                      ("pr_relationships_stats_days*.csv", "pr_relationships_stats"),
+                      ("pr_relationships_data_days*.csv", "pr_relationships_data")):
         fs = all_days_tables(days_dir, pat)
         for g in fs:
             X.add(g, kind, "all", final="yes" if g == fs[-1] else "no")
+    for name, kind, note in (("prev_cohort_mouse_day_table.csv", "prev_cohort_mouse_day",
+                              "previous cohort mouse-day table (cohort_plots on its Step 02 file; pr_relationships.py)"),
+                             ("prev_cohort_pairs.csv", "prev_cohort_pairs", "previous cohort replay pairs (replay logs)"),
+                             ("prev_yoked_x_notes.csv", "prev_yoked_x_notes", "previous cohort Yoked-day exceptions")):
+        g = project / "analysis" / "prev_cohort" / name
+        if g.exists():
+            X.add(g, kind, "all", final="yes", note=note)
     # pupil check (2026-11-18, pupil_check_examples.py): frames out of the pupil the tables use + Claude's verdicts
     pc = project / "analysis" / "pupil_check"
     fs = all_days_tables(pc, "pupil_check_days*.csv") if pc.is_dir() else []

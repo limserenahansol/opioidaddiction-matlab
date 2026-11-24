@@ -27,6 +27,14 @@ For day N, like the HOT step of assays_day.py (that file is not changed):
     user rules and 5 answered frames of 2026-11-22; v6b = straub_auto.py / straub_angle.py, kept)
     on every scoring copy -> analysis/straub_auto/day<N>/ (per-frame tail angle; Straub = > 25 deg from the body axis,
     or the tail raised over the back; 0.5-s majority). Shown next to the hand score, never instead of it.
+    2026-11-23: v9.1 (straub_auto_v9.py + straub_angle_v9.py; user: "v9 is correct", then "use the most update recent
+    version ... for future"): v8h + tail on / near the floor = not counted (unless clearly raised), a long tail over the
+    top of the body = Straub, a tilted body line (front / back view) = floor reference; a measured frame keeps its call
+    unless >= 75 % of the frames within 0.25 s disagree. Two numbers: auto_straub_pct = S / (S + N) over counted frames,
+    auto_straub_pct_all_frames = the previous cohort's way (tail on the floor = Straub-free). Frozen: no daily tuning.
+    FINAL (straub_final_pct): the hand score when there is one, over the COUNTING frames (the automatic run's
+    vertical-body frames left out; user 2026-11-23 for 9669m black day 9: "20% are non counting so please re caculrate
+    only the % straub among 80% counting frames"), else the automatic v9.1 value.
  5. TABLE: analysis/days/day<N>/straub_day<N>.csv: seconds scored, straub_pct (key 'a'), straub_free_pct (no key),
     other keys % (should be 0; '!!' if not), auto_straub_pct, auto_measured_pct, tail-immersion latency of the day.
 Dry run unless --apply. Windows idle priority.
@@ -169,8 +177,8 @@ def auto_step(day: int, sdir: Path, apply: bool, log: list):
         if not apply:
             log.append(f"  would run the automatic Straub tail on {v.name}")
             continue
-        import straub_auto_v8 as SAU      # v8 since 2026-11-22 (user: correct body line for a mouse seen from behind,
-        S = SAU.run(v, out, None)         # vertical body = rearing / grooming not counted; 5 frames answered)
+        import straub_auto_v9 as SAU      # v9.1 since 2026-11-23 (v8 since 11-22; user: "v9 is correct", frozen)
+        S = SAU.run(v, out, None)
         log.append(f"  automatic Straub tail {v.name}: {S['straub_pct']} % (angle measured in {S['measured_pct']} % of "
                    f"frames) -> {js.relative_to(P).as_posix()}")
 
@@ -185,11 +193,15 @@ def table(day: int, mice, log: list):
             for r in csv.DictReader(fh):
                 if int(r["day"]) == day:
                     tail[(r["cage"], r["mouse"])] = r["latency_s"]
-    autos = {}
+    import pandas as pd
+    autos, autos_frames = {}, {}
     for js in sorted((P / "analysis" / "straub_auto" / f"day{day}").glob("*_summary.json")):
         _, ac, am, ad = parse(js.stem, mice)
         if ac and am and ad == day:
             autos[(ac, am)] = json.loads(js.read_text(encoding="utf-8"))
+            fr_csv = js.with_name(js.name.replace("_summary.json", "_frames.csv"))
+            if fr_csv.exists():
+                autos_frames[(ac, am)] = fr_csv
     rows = []
     for cage in sorted(mice):
         for mouse in sorted(mice[cage]):
@@ -199,6 +211,9 @@ def table(day: int, mice, log: list):
                 r["auto_straub_pct"] = au.get("straub_pct")
                 r["auto_measured_pct"] = au.get("measured_pct")
                 r["auto_vertical_not_counted_pct"] = au.get("excluded_vertical_pct")
+                r["auto_floor_not_counted_pct"] = au.get("excluded_floor_pct")      # v9.1
+                r["auto_straub_pct_all_frames"] = au.get("straub_pct_all_frames")   # v9.1, previous cohort's way
+                r["auto_version"] = au.get("version") or ("v8h" if "v8" in str(au.get("rule", "")) else "")
             adir = P / "assays" / f"day{day}" / cage / mouse
             f = sorted(adir.glob("ManualScoringResults*straub*.mat")) if adir.exists() else []
             r["straub_file"] = f[-1].name if f else ""
@@ -217,6 +232,38 @@ def table(day: int, mice, log: list):
                     log.append(f"  !! {cage} {mouse}: {other:.2f} % of frames have a key other than 'a' - check")
                 if len(sc) / fr < 290:
                     log.append(f"  !! {cage} {mouse}: only {len(sc) / fr:.0f} s scored (< 5 min)")
+                fcsv = autos_frames.get((cage, mouse))
+                if fcsv is not None:                  # 2026-11-23: hand % over the counting frames only
+                    stv = pd.read_csv(fcsv, usecols=["state"]).state.to_numpy() if "state" in pd.read_csv(
+                        fcsv, nrows=0).columns else None
+                    if stv is not None:
+                        k = min(len(stv), len(sc))
+                        keep = stv[:k] != -1          # -1 = vertical body (rearing / grooming) in the v9.1 run
+                        r["counting_frames_pct"] = round(100 * float(keep.mean()), 1)
+                        r["straub_pct_counting"] = round(100 * float(np.mean(sc[:k][keep] == KEY_STRAUB)), 2)
+            # 2026-11-23 (independent review, confirmed): a hand score with NO key pressed at all (an aborted or empty
+            # run, like the first 1x run of 9669m black day 9 at 12:21) must not become the final value
+            if f and r.get("straub_pct") is not None and not bool((sc != 0).any()):
+                log.append(f"  !! {cage} {mouse}: no key pressed in the whole hand score {f[-1].name} (aborted run?) - "
+                           "the automatic value stays the final one")
+                r["hand_score_note"] = "no key pressed - not used"
+                r.pop("straub_pct_counting", None)
+                r["straub_pct"] = None
+            elif f and r.get("straub_pct") is not None:
+                last = float(np.flatnonzero(sc != 0).max() + 1) / fr
+                if last < 0.6 * len(sc) / fr:
+                    log.append(f"  !! {cage} {mouse}: the last key press of the hand score is at {last:.0f} s of "
+                               f"{len(sc) / fr:.0f} s - stopped early? (used; check)")
+                    r["hand_score_note"] = f"last key at {last:.0f} s - check"
+            # final Straub % of the day (2026-11-23): hand over the counting frames > hand > automatic
+            if r.get("straub_pct_counting") is not None:
+                r["straub_final_pct"] = r["straub_pct_counting"]
+                r["straub_final_source"] = "hand score over the counting frames (vertical-body frames left out)"
+            elif r.get("straub_pct") is not None:
+                r["straub_final_pct"], r["straub_final_source"] = r["straub_pct"], "hand score, all frames"
+            elif au:
+                r["straub_final_pct"] = au.get("straub_pct")
+                r["straub_final_source"] = f"automatic {r.get('auto_version') or ''}".strip()
             r["tail_immersion_s"] = tail.get((cage, mouse), "")
             rows.append(r)
     out = P / "analysis" / "days" / f"day{day}" / f"straub_day{day}.csv"

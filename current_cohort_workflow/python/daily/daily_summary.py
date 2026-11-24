@@ -40,6 +40,15 @@ daily_summary.py - end-of-day routine ("summary of today behavior result").
   8) QC SUMMARY (added 2026-11-17) qc_summary.py: one picture of all days so far (rewards Python = Saleae, PR, valve,
               session length, licks Saleae vs Python, frames vs pulses, pupil / whole eye); every CHECK item is
               explained (yellow) or red; open issues in analysis\\days\\qc_open_issues.csv
+  8b) RESULTS PLOTS (added 2026-11-23, user: "in routine you should show me the plot of pupil and straub and TI, TST,
+              HOT plate always! the result") results_plots.py -> analysis\\days\\results_days1-N.png + .csv: pupil
+              size + pupil at reward, Straub %, tail immersion, TST and hot-plate non-moving %, per mouse and day
+  8c) PR RELATIONSHIPS (added 2026-11-23, user: "relationship comparison PR vs TI , PR vs TST , PR vs HOT , PR vs
+              Straub ,PR vs Pupil ... please do this for current cohort daily and also for previous cohort data as
+              well !"; "need to label passiive and active and morphine and natural reward separately")
+              pr_relationships.py -> analysis\\days\\pr_relationships_current_days1-N.png, _previous_cohort.png,
+              _daysets_days1-N.png + stats/data csv: Active / Passive x natural reward / morphine apart (Yoked days:
+              drops delivered + 1), mouse level + same day, both cohorts, the lab's 8 day sets; report only
   9) ROUTINE PPT (added 2026-11-17) routine_ppt.py -> analysis\\ppt\\routine_dayN_<date>.pptx: overview, QC per
               session, data problems and fixes, routine problems fixed (analysis\\days\\routine_log.csv), where all
               plots are, basic plots (previous-cohort figures + today's figures), what to do better next
@@ -505,7 +514,16 @@ def pair_day(found, ff, log):
     # the session agree with the Python log's lick / observed_lick records, (c) the CSV saved soonest after the
     # session ended; a CSV saved more than 60 s before the session ended comes last.
     early = early_stop_sessions()
-    for s in real:
+    # 2026-11-23 (day 10: 9669m white had no .sal and took 9670f green1's CSV, saved 37 min after white ended, because
+    # the sessions chose in time order): sessions WITH a .sal choose first (the .sal fixes the capture start), and a
+    # session without a .sal only takes a CSV saved before the next session ended
+    # 2026-11-23 (independent review, confirmed): every full log counts as a "next session" (also a name that was not
+    # understood), and a CSV whose folder names ANOTHER session of the day (its export folder is called like that
+    # session's log, or it sits in that session's salae\dayN\<cage>\<mouse>\ folder) is never taken by this one
+    others = [(o, o["py"]["name"].lower(), (PROJECT / "salae" / f"day{o['day']}" / o["cage"] / o["mouse"]).resolve()
+               if o["status"] == "session" else None) for o in sessions if o["status"] in ("session", "name not understood")]
+    ends = sorted(o["py"]["start"] + o["py"]["dur"] for o, _, _ in others)
+    for s in sorted(real, key=lambda z: z["sal"] is None):
         best = None
         n_rew, dur = s["py"]["rewards"], s["py"]["dur"]
         py_end = s["py"]["start"] + dur
@@ -527,6 +545,10 @@ def pair_day(found, ff, log):
                 if not (short_ok and 0.5 * dur * CAM_HZ <= x["n_cam"] < dur * CAM_HZ):
                     continue
             named = nm in str(x["path"]).lower() or (own is not None and x["path"].parent.resolve() == own)
+            fold = x["path"].parent.name.lower()
+            if not named and any(o is not s and (on == fold or (oo is not None and x["path"].parent.resolve() == oo))
+                                 for o, on, oo in others):
+                continue
             lk = x.get("licks")
             if lk is not None and py_lk is not None:
                 n_lk = sum(1 for t in lk if x["first_cam"] - 0.1 <= t <= x["first_cam"] + dur + 2)
@@ -545,7 +567,8 @@ def pair_day(found, ff, log):
                 score = (not named, lick_bad, x["path"].parent != s["sal"]["path"].parent, abs(len(in_sess) - n_rew),
                          late, err)
             else:
-                if not 0 <= gap <= 3600:
+                nxt = next((e for e in ends if e > py_end + 1), None)
+                if not 0 <= gap <= 3600 or (not named and nxt is not None and py_end + gap > nxt):
                     continue
                 score = (not named, lick_bad, False, abs(len(in_sess) - n_rew), late, gap)
             if best is None or score < best[0]:
@@ -980,6 +1003,20 @@ def main(argv=None):
         rc_qc = subprocess.run([sys.executable, "-B", str(TOOLS / "qc_summary.py")]).returncode
         if rc_qc:
             print("  !! qc_summary.py could not finish (see above)")
+        # RESULTS picture (added 2026-11-23, user: "in routine you should show me the plot of pupil and straub and TI,
+        # TST, HOT plate always! the result"): analysis\days\results_days1-N.png + .csv, every run (also with --no-ppt;
+        # the deck refreshes it and shows it after the TI slide). Report only, changes nothing.
+        print("\n=== RESULTS PLOTS (pupil, Straub, TI, TST, hot plate) ===")
+        if subprocess.run([sys.executable, "-B", str(TOOLS / "results_plots.py")]).returncode:
+            print("  !! results_plots.py could not finish (see above)")
+        # PR vs tail immersion / TST / hot plate / Straub / pupil (added 2026-11-23, user: "relationship comparison PR vs
+        # TI , PR vs TST , PR vs HOT , PR vs Straub ,PR vs Pupil ... please do this for current cohort daily and also for
+        # previous cohort data as well !"; "need to label passiive and active and morphine and natural reward
+        # separately"): both cohorts, Active / Passive x natural reward / morphine apart, every day set; report only.
+        # The deck shows it after the results (and re-runs it only when an input is newer than its picture).
+        print("\n=== PR RELATIONSHIPS (PR vs TI, TST, hot plate, Straub, pupil; both cohorts) ===")
+        if subprocess.run([sys.executable, "-B", str(TOOLS / "pr_relationships.py")]).returncode:
+            print("  !! pr_relationships.py could not finish (see above)")
         # data index (added 2026-11-18, user: "we are making csv or output data per day so in order to use and recall
         # this for 18days later"): every saved data file with its relative path and which one is final
         print("\n=== DATA INDEX ===")

@@ -24,6 +24,7 @@ usage:  python routine_ppt.py [--days 1 2 3 4] [--pupil-days 1 2 3 4 5] [--out F
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from datetime import datetime
@@ -42,6 +43,9 @@ import qc_summary as QS  # noqa: E402
 import pr_table_days as PT  # noqa: E402  (PR score per mouse and day, 2026-11-18)
 import pupil_check_examples as PCE  # noqa: E402  (pupil check pictures + Claude's verdicts, 2026-11-18)
 import ti_table_days as TI  # noqa: E402  (tail immersion per mouse and day, 2026-11-20)
+import results_plots as RP  # noqa: E402  (results picture: pupil, Straub, TI, TST, hot plate, 2026-11-23)
+import assay_day_compare as ADC  # noqa: E402  (TST / hot plate / Straub: day 5 vs the day, 2026-11-23)
+import pr_relationships as PRR  # noqa: E402  (PR vs TI / TST / hot plate / Straub / pupil, both cohorts, 2026-11-23)
 
 P = TOOLS.parent
 DAYS_DIR = P / "analysis" / "days"
@@ -249,11 +253,11 @@ def assays_slide(prs, blank, N, foot):
                  "TI = the latency you sent (s) · TST = automatic, first 3 min, with a per-frame mouse check · "
                  "HOT = your hand score, first 30 s" +
                  ("" if N in TST_HP_DAYS else " · TST and hot plate only on days 5, 10, 13, 16, 18") +
-                 (" · Straub = automatic, first 5 min (tail > 25° from the body line; rearing / grooming not counted)"
-                  if ST is not None else ""))
+                 (" · Straub = automatic v9.1, first 5 min (tail > 25° from the body line; rearing / grooming and "
+                  "tail-on-floor frames not counted), or your hand score where you scored" if ST is not None else ""))
     hot_cols = [c for c in A.columns if c.startswith("hot_pct_")]
     names = [c.replace("hot_pct_", "").replace("_", " ") for c in hot_cols]
-    st_head, st_w = (["Straub (auto)", "Straub check"], [1.1, 2.45]) if ST is not None else ([], [])
+    st_head, st_w = (["Straub", "Straub source · check"], [1.1, 2.45]) if ST is not None else ([], [])
     header = ["Mouse", "TI (s)", "TST non-moving", "TST check"] + st_head + [f"HOT {n}" for n in names]
     rest = 12.33 - 1.45 - 0.8 - 1.2 - 2.1 - sum(st_w)
     widths = [1.45, 0.8, 1.2, 2.1] + st_w + [rest / max(1, len(hot_cols))] * len(hot_cols)
@@ -289,10 +293,22 @@ def assays_slide(prs, blank, N, foot):
         if ST is not None:
             q = ST[(ST.cage == c) & (ST.mouse == m)]
             q = q.iloc[0].to_dict() if len(q) else {}
-            sp, ms_, vt = (num(q.get("auto_straub_pct")), num(q.get("auto_measured_pct")),
-                           num(q.get("auto_vertical_not_counted_pct")))
-            row += [cell(f"{sp:.1f} %" if sp == sp else "missing", sp == sp),
-                    cell(f"tail measured {ms_:.0f} % · vertical {vt:.0f} %" if sp == sp else "-", sp == sp)]
+            # 2026-11-23: the FINAL Straub % (hand score over the counting frames where the user scored, else the
+            # automatic v9.1 value), with where it comes from and the automatic run's frames that were not counted
+            fin = num(q.get("straub_final_pct"))
+            sp = fin if fin == fin else num(q.get("auto_straub_pct"))
+            ms_, vt, fl = (num(q.get("auto_measured_pct")), num(q.get("auto_vertical_not_counted_pct")),
+                           num(q.get("auto_floor_not_counted_pct")))
+            src_ = str(q.get("straub_final_source", "") or "")
+            if src_.startswith("hand"):
+                cf = num(q.get("counting_frames_pct"))
+                chk_ = "your hand score" + (f" over the counting {cf:.0f} % of frames" if cf == cf else "")
+            else:
+                ver = str(q.get("auto_version", "") or "auto")
+                chk_ = (f"auto {ver} · not counted: vertical {vt:.0f} %" + (f", floor {fl:.0f} %" if fl == fl else "")
+                        if sp == sp else "-")
+            row += [cell(f"{sp:.1f} %" if sp == sp else "missing", sp == sp, src_.startswith("hand")),
+                    cell(chk_, sp == sp, src_.startswith("hand"))]
         hot_ok = str(r.get("hot_file", "")) not in ("", "nan")
         for hc in hot_cols:
             v = num(r.get(hc))
@@ -304,7 +320,8 @@ def assays_slide(prs, blank, N, foot):
                 f"cell B1 · TST: ManualScoringResults_*_TST_day{N}_AUTO.mat · HOT: ManualScoringResults_*_HOT_day{N}_"
                 f"first30s.mat) · TST examples: analysis\\tst\\day{N}\\examples\\ · table: analysis\\days\\day{N}\\"
                 f"assays_day{N}.csv · yellow = the camera moved during that TST video; the moved frames were aligned "
-                "before scoring" + (f" · Straub: analysis\\days\\day{N}\\straub_day{N}.csv, frames + traces in "
+                "before scoring" + (" · yellow Straub = your hand score (over the counting frames)" if ST is not None
+                                    else "") + (f" · Straub: analysis\\days\\day{N}\\straub_day{N}.csv, frames + traces in "
                                     f"analysis\\straub_auto\\day{N}\\ (vertical = rearing / grooming frames, not counted)"
                                     if ST is not None else ""), size=10, color=MUTED, name="Assays note")
     MS.add_footer(s, foot)
@@ -315,6 +332,27 @@ def _blue(v):
     """fill for a PR cell: v = 0 (lowest PR of the table) .. 1 (highest)"""
     a, b = (0xEE, 0xF4, 0xFB), (0x8F, 0xBB, 0xE3)
     return "".join(f"{int(round(x + (y - x) * max(0.0, min(1.0, v)))):02X}" for x, y in zip(a, b))
+
+
+def did_found_slide(prs, path: Path, title: str, did: str, found: str):
+    """one picture per slide with the lab's 'Did / Found' lines under the title (added 2026-11-23 for the PR
+    relationships); the picture keeps its aspect and fills the rest of the slide"""
+    from PIL import Image
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    MS.add_text(s, 0.5, 0.18, 12.33, 0.5, title, size=22, color=NAVY, bold=True, name="Title")
+    MS.add_text(s, 0.5, 0.68, 12.33, 0.28, [[("Did: ", {"bold": True}), (did, {})]], size=10.5, color=MUTED, name="Did")
+    MS.add_text(s, 0.5, 0.96, 12.33, 0.56, [[("Found: ", {"bold": True}), (found, {})]], size=10.5, color=TEXT,
+                name="Found")
+    with Image.open(path) as im:
+        w, h = im.size
+    bx, by, bw, bh = 0.4, 1.56, 12.53, 5.58
+    sc = min(bw / w, bh / h)
+    pw, ph = w * sc, h * sc
+    pic = s.shapes.add_picture(str(path), Inches(bx + (bw - pw) / 2), Inches(by + (bh - ph) / 2), Inches(pw),
+                               Inches(ph))
+    pic.name = path.stem
+    MS.add_text(s, 0.5, 7.18, 12.33, 0.25, str(path), size=8, color=MUTED, name="Source")
+    return s
 
 
 def pr_slide(prs, blank, days, foot, Tb):
@@ -738,6 +776,84 @@ def build(days, out: Path, pupil_days=None):
         TI.main(["--days", *map(str, ti_days)])  # refresh analysis\\days\\ti_table_days*.csv/.png (a few s)
         block("Tail immersion per day")
         ti_slide(prs, blank, TIt, foot)
+
+    # ---- 2c results so far: pupil, Straub, TI, TST, hot plate (added 2026-11-23, user: "in routine you should show me
+    # the plot of pupil and straub and TI, TST, HOT plate always! the result"); the picture is refreshed here (a few s)
+    try:
+        RP.main(["--days", *map(str, days)])
+    except Exception as exc:                    # the deck is still made without it
+        print(f"  !! results_plots.py could not finish: {exc}")
+    rp = DAYS_DIR / f"results_days{days[0]}-{days[-1]}.png"
+    if rp.exists():
+        block("results (pupil, Straub, TI, TST, hot plate)")
+        MS.image_slide(prs, rp, "Results so far · PR, licking, pupil, tail immersion, Straub, TST, hot plate",
+                       "One line per mouse (Active red, Passive blue) · thick = group median · shaded = morphine days · "
+                       "PR and licking: active sessions only (passive = yoked, spout in the mouth) · pupil = the "
+                       "tables' pupil (whole-eye mice left out) · Straub = automatic v9.1 or your hand score · numbers: "
+                       f"analysis\\days\\results_days{days[0]}-{days[-1]}.csv")
+    # ---- 2d TST / hot plate / Straub: day 5 (baseline) vs today, on the TST + hot-plate days (added 2026-11-23, user:
+    # "TST and HoT and STraub comparison with day 5 vs day 10"; "put all in our routine ppt")
+    if N in TST_HP_DAYS and N != 5:
+        try:
+            ADC.main(["--days", "5", str(N)])
+        except Exception as exc:                # the deck is still made without it
+            print(f"  !! assay_day_compare.py could not finish: {exc}")
+        cp = DAYS_DIR / f"assay_compare_days5-{N}.png"
+        if cp.exists():
+            block(f"assays: day 5 vs day {N}")
+            MS.image_slide(prs, cp, f"Assays · day 5 (baseline) vs day {N}: TST, hot plate, Straub tail",
+                           "One line per mouse (Active red, Passive blue) · thick = group median · TST automatic, first "
+                           "3 min · hot plate your hand score, first 30 s · Straub from day 9 only (no day-5 baseline) · "
+                           f"numbers: analysis\\days\\assay_compare_days5-{N}.csv")
+    # ---- 2e PR vs tail immersion, TST, hot plate, Straub tail and pupil, both cohorts (added 2026-11-23, user:
+    # "relationship comparison PR vs TI , PR vs TST , PR vs HOT , PR vs Straub ,PR vs Pupil ... please do this for
+    # current cohort daily and also for previous cohort data as well !"; "need to label passiive and active and morphine
+    # and natural reward separately"). The routine's step 8c makes the pictures; here they are re-made only when what
+    # they were made from changed (PRR.input_signature vs pr_relationships_inputs_days1-M.json: Step 02 run, PR table,
+    # Straub tables, previous-cohort tables, the code; review 2026-11-23: file times alone were always newer).
+    # The tool names its files by the last Step 02 day M; the newest M <= N is shown, with a note when M < N
+    def _pr_m():
+        ms = [int(m.group(1)) for f in DAYS_DIR.glob("pr_relationships_current_days1-*.png")
+              if (m := re.fullmatch(r"pr_relationships_current_days1-(\d+)", f.stem)) and int(m.group(1)) <= N]
+        return max(ms) if ms else None
+    M = _pr_m()
+    try:
+        cur_sig = PRR.input_signature(M or N)
+        old = PRR.signature_file(M or N)
+        stale = M is None or not old.exists() or json.loads(old.read_text(encoding="utf-8")) != cur_sig
+    except Exception:
+        stale = True
+    if stale:
+        try:
+            PRR.main([])
+        except Exception as exc:                # the deck is still made without it
+            print(f"  !! pr_relationships.py could not finish: {exc}")
+        M = _pr_m()
+    pr_png = DAYS_DIR / f"pr_relationships_current_days1-{M}.png" if M else None
+    pr_csv = DAYS_DIR / f"pr_relationships_stats_days1-{M}.csv" if M else None
+    if pr_png is None or not pr_png.exists() or not pr_csv.exists():
+        print("  !! PR relationship slides skipped: no pr_relationships_current_days1-M picture / stats for M <= "
+              f"{N} (run tools\\pr_relationships.py)")
+    else:
+        Rr = pd.read_csv(pr_csv)
+        lag = f" · Step 02 has days 1-{M} only" if M < N else ""
+        block("PR vs assays and pupil")
+        did_found_slide(prs, pr_png, f"PR vs tail immersion, TST, hot plate, Straub, pupil · current cohort (days 1-{M})",
+                        "A / P × natural reward / morphine apart · □ = Passive Yoked, x = drops delivered + 1 · 2 M + 2 F "
+                        "per group (smallest mouse p .083) · pupil 3 per group" + lag,
+                        "(exploratory, no correction; ρ = mouse level, day r = same day) " + PRR.found_text(Rr, "current", 2))
+        pv = DAYS_DIR / "pr_relationships_previous_cohort.png"
+        if pv.exists():
+            did_found_slide(prs, pv, "PR vs tail immersion, TST, hot plate, Straub, pupil · previous cohort (Dec 2025)",
+                            "the same tables and tests on the previous cohort (14 mice: 6 Active, 8 Passive; days 3-18; "
+                            "8 Passive replayed 6 partners; day 8 ran on 01-07 or 01-12 by cage)",
+                            "(exploratory, no correction; ρ = mouse level, day r = same day) "
+                            + PRR.found_text(Rr, "previous", 2))
+        dsp = DAYS_DIR / f"pr_relationships_daysets_days1-{M}.png"
+        if dsp.exists():
+            did_found_slide(prs, dsp, "PR relationships in the lab's 8 day sets",
+                            "every test again with each day set's days left out (tools\\day_sets.csv)",
+                            f"current: {PRR.robust_text(Rr, 'current')} · previous: {PRR.robust_text(Rr, 'previous')}")
 
     # ---- 3 QC per session
     block("QC per session")
