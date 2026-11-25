@@ -31,7 +31,7 @@ from pathlib import Path
 
 import numpy as np
 
-TOOL_VERSION = "1.1"
+TOOL_VERSION = "1.2"     # 1.2 (2026-11-24): unmatched licks outside the Python run are outside the session
 
 # ----------------------------------------------------------------------------- settings
 CHANNEL_NAMES = {"camera": "camera", "lick": "lick", "reward": "reward"}  # Saleae channel names
@@ -459,7 +459,9 @@ def process_session(s: dict, out_dir: Path, ffmpeg, offsets: dict, drops: dict =
     if outside_v:
         info.append(f"{outside_v} valve pulse(s) outside the python session (e.g. flushing) - listed, not matched")
 
-    lick_in = [j for j, t in enumerate(lick_r) if in_sess(t)]
+    # 2026-11-24 (user: align the lick windows): the pads are for matched licks only; a Saleae lick with no Python
+    # match before the Python start or after its end is outside the session (only the time Python ran counts)
+    lick_in = [j for j, t in enumerate(lick_r) if in_sess(t) and (j in lmatch or t_start <= t <= t_end)]
     msg = f"licks: saleae {len(lick_in)} in session, python {len(py_lick_ev)}, matched {len(lmatch)}"
     delays = [(to_sal(py_lick[i]) - lick_r[j]) * 1000 for j, i in lmatch.items()]
     med_delay = float(np.median(delays)) / 1000 if delays else LICK_DELAY0
@@ -595,7 +597,10 @@ def process_session(s: dict, out_dir: Path, ffmpeg, offsets: dict, drops: dict =
     lick_by_rise = {j: py_lick_ev[i] for j, i in lmatch.items()}
     for j, (on, off) in enumerate(lick_iv):
         pe = lick_by_rise.get(j)
-        note = where(on) or ("" if pe else "no matching python lick")
+        note = where(on)
+        if not note and pe is None:              # unmatched: outside the Python run = outside the session (11-24)
+            note = ("before python start" if on < t_start else "after python end" if on > t_end
+                    else "no matching python lick")
         rows.append({"event": "lick", "source": "saleae", "trial": pe.get("trial") if pe else None,
                      "valid": pe.get("valid") if pe else None, "t_on": on, "t_off": off,
                      "during_valve": in_valve(on, off),

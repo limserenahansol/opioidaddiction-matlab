@@ -1148,6 +1148,9 @@ def check_valve(rep, ev, n_cmd, sync, row, T, residual):
 def check_licks(rep, ev, log, sync, is_pr, T, replay):
     """E: Saleae lick onsets vs Python licks; Python-only licks that the task counted (valid=True)."""
     lk = ev[(ev["event"] == "lick") & (ev["source"] == "saleae")]
+    # 2026-11-24 (lick windows aligned): count what the sync counts - no lick it tagged before the Python start or
+    # after the Python end (unmatched licks in the pads included)
+    lk = lk[~lk["note"].fillna("").astype(str).str.contains("before python start|after python end")]
     n_sal = int(((lk["t_saleae_s"] >= T.win[0]) & (lk["t_saleae_s"] <= T.win[1])).sum())
     if replay:
         n_obs = sum(1 for e in log["events"] if e.get("tag") == "observed_lick")

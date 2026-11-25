@@ -263,8 +263,11 @@ def fig_cumulative(SS, out):
 def per_minute(S):
     nb = int(np.ceil(S["t_end"] / 60))
     edges = np.arange(nb + 1) * 60.0
-    lk, _ = np.histogram(S["licks"]["t"], edges)
-    rw, _ = np.histogram(S["valves"][S["valves"]["kind"] == "reward"]["t"], edges)
+    # in-session licks / rewards a few ms before the first camera pulse (t < 0) belong to minute 1, as in the
+    # first-15:10 window (2026-11-24, lick windows aligned; they used to fall out of the histogram)
+    lk, _ = np.histogram(np.clip(S["licks"]["t"].to_numpy(float), 0, edges[-1]), edges)    # start and end pads
+    rw, _ = np.histogram(np.clip(S["valves"][S["valves"]["kind"] == "reward"]["t"].to_numpy(float), 0, edges[-1]),
+                         edges)
     width = np.minimum(edges[1:], S["t_end"]) - edges[:-1]
     keep = width > 0    # last partial minute is kept (rates are normalised by its real length)
     return pd.DataFrame(dict(mouse=S["mouse"], day=S["day"], session=S["session"], minute=np.arange(nb)[keep] + 1,

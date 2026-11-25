@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import json
 import re
 import sys
 from pathlib import Path
@@ -62,6 +63,50 @@ def listed_fixes() -> set:
                 if r.get("session"):
                     keys.add(str(r["session"]).strip().lower())
     return keys
+
+
+def py_clock(log_path: Path, rises, first_cam):
+    """Python elapsed -> Saleae time (a + b * elapsed), fitted here from the log's reward_cmd times and the Saleae valve
+    rises (2026-11-24, own small fit so S6 can use the real Python start / end; None when < 2 rewards match)"""
+    el = []
+    try:
+        with open(log_path, encoding="utf-8") as fh:
+            for ln in fh:
+                if '"reward_cmd"' in ln:
+                    try:
+                        el.append(float(json.loads(ln)["elapsed"]))
+                    except (ValueError, KeyError):
+                        pass
+    except OSError:
+        return None
+    if len(el) < 2 or not rises or first_cam is None:
+        return None
+    r = sorted(float(x) for x in rises)
+    xs, ys = [], []
+    for e in el:                                    # the valve rises just after the command (first guess: camera start)
+        near = [t for t in r if 0 <= t - (first_cam + e) <= 0.3]
+        if near:
+            xs.append(e); ys.append(near[0])
+    if len(xs) < 2:
+        return None
+    n = len(xs); mx, my = sum(xs) / n, sum(ys) / n
+    sxx = sum((x - mx) ** 2 for x in xs)
+    b = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx if sxx > 0 else 1.0
+    return my - b * mx, b
+
+
+def sync_window(day: int, cage: str, mouse: str, name: str):
+    """(python start, python end) in Saleae time from the sync report's clock line ('t = a + b * elapsed', offset from
+    the reward valves, drift from hundreds of licks) and 'experiment_end at X s'; None without a report. S6 still counts
+    the onsets itself from the raw digital.csv (2026-11-24: a reward-only fit drifted ~50 ms over 910 s)"""
+    f = P / "sync" / f"day{day}" / cage / mouse / f"{name}_report.txt"
+    try:
+        txt = f.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    m = re.search(r"t = ([-\d.]+) \+ ([\d.]+) \* elapsed", txt)
+    e = re.search(r"experiment_end at ([\d.]+) s", txt)
+    return (float(m.group(1)), float(e.group(1))) if m and e else None
 
 
 def sync_verdict(day: int, name: str) -> str:
@@ -131,9 +176,14 @@ def main(argv=None) -> int:
                     f"valve openings {n_rew} vs python reward_cmd {py['rewards']}")
                 passive = "replay" in str(py.get("paradigm", "")).lower() or "passive" in name.lower()
                 if cs.get("licks") is not None and not passive:
-                    # licks only while Python ran, with sync_sessions' pads (start - 0.05 s, end + 0.1 s); review
-                    # 2026-11-24: was the reward window, which runs 2 s past the end
-                    n_lk = sum(1 for t in cs["licks"] if cs["first_cam"] - 0.05 <= t <= cs["first_cam"] + py["dur"] + 0.1)
+                    # licks only while Python ran (2026-11-24, lick windows aligned with sync 1.2): the Saleae edge
+                    # comes ~15 ms BEFORE Python's record, so a lick Python saw can sit a few ms before the start
+                    # (pad 0.05 s) but never after the end; an onset after the end is outside the session
+                    win = sync_window(d, c, m, name)
+                    clk = None if win else py_clock(py["path"], cs.get("rewards"), cs["first_cam"])
+                    t0, t1 = (win if win else (clk[0], clk[0] + clk[1] * py["dur"]) if clk
+                              else (cs["first_cam"], cs["first_cam"] + py["dur"]))
+                    n_lk = sum(1 for t in cs["licks"] if t0 - 0.05 <= t <= t1)
                     bad = abs(n_lk - py["licks"]) > max(20, 0.5 * max(n_lk, py["licks"]))
                     add(d, c, m, name, "S6 licks", "WARN" if bad else "PASS", f"Saleae lick onsets {n_lk} vs python lick records {py['licks']}")
                 if vids:
