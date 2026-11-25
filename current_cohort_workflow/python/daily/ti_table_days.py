@@ -91,7 +91,21 @@ def table(days=None):
     return Tb
 
 
-def draw_plot(ax, Tb, days):
+def gap_xy(x, y, break_gaps=True):
+    """x, y with a NaN between days more than 1 apart, so a line does not run across days without a value"""
+    x, y = list(x), list(y)
+    if not break_gaps or len(x) < 2:
+        return x, y
+    xs, ys = [x[0]], [y[0]]
+    for a, b, v in zip(x[:-1], x[1:], y[1:]):
+        if b - a > 1:
+            xs.append((a + b) / 2); ys.append(float("nan"))
+        xs.append(b); ys.append(v)
+    return xs, ys
+
+
+def draw_plot(ax, Tb, days, break_gaps=False):
+    """break_gaps (2026-11-24 review): no line across missing days (results PR / licks: Passive Yoked days)"""
     import matplotlib.pyplot as plt  # noqa: F401  (the caller set the backend)
     for a, b, name, rew in PHASES:
         lo, hi = max(a, days[0]) - 0.5, min(b, days[-1]) + 0.5
@@ -108,7 +122,7 @@ def draw_plot(ax, Tb, days):
         if g.empty:
             continue
         col = GCOL.get(g.group.iloc[0], "#7b8794")
-        ax.plot(g.day, g.latency_s, "-o", color=col, alpha=0.4, lw=1.1, ms=3.5, zorder=2)
+        ax.plot(*gap_xy(g.day, g.latency_s, break_gaps), "-o", color=col, alpha=0.4, lw=1.1, ms=3.5, zorder=2)
         ends.append([int(g.day.iloc[-1]), float(g.latency_s.iloc[-1]), f"{c[-1]}{m}", col])
     gap = 0.045 * max([e[1] for e in ends] + [1.0])  # labels at the same day are kept this far apart (in s)
     for d in sorted({e[0] for e in ends}):
@@ -121,7 +135,8 @@ def draw_plot(ax, Tb, days):
     for grp, col in GCOL.items():
         M = Tb[(Tb.group == grp) & Tb.latency_s.notna()].groupby("day").latency_s.median()
         if len(M):
-            ax.plot(M.index, M.values, "-o", color=col, lw=3, ms=6, zorder=3, label=f"{grp} median")
+            ax.plot(*gap_xy(M.index, M.values, break_gaps), "-o", color=col, lw=3, ms=6, zorder=3,
+                    label=f"{grp} median")
     ax.plot([], [], "-o", color="#7b8794", alpha=0.5, lw=1.1, ms=3.5, label="one mouse (f = 9670f, m = 9669m)")
     ax.set_xticks(days)
     ax.set_xlim(days[0] - 0.4, days[-1] + 0.6)
@@ -148,9 +163,10 @@ def figure(Tb, days, out_png: Path, out_plot: Path):
     lo, hi = (v.min(), v.max()) if len(v) else (0, 1)
     cmap = plt.get_cmap("Oranges")
 
-    def cell(x, y, txt, sub="", face="white", bold=False, col="#1f2933"):
+    def cell(x, y, txt, sub="", face="white", bold=False, col="#1f2933", size=None):
         ax.add_patch(plt.Rectangle((x, y), 1, 1, facecolor=face, edgecolor="#c9ced6", lw=0.8))
-        ax.text(x + 0.5, y + (0.42 if sub else 0.52), txt, ha="center", va="center", fontsize=12 if sub else 11,
+        ax.text(x + 0.5, y + (0.42 if sub else 0.52), txt, ha="center", va="center",
+                fontsize=size or (12 if sub else 11),
                 fontweight="bold" if bold else "normal", color=col)
         if sub:
             ax.text(x + 0.5, y + 0.78, sub, ha="center", va="center", fontsize=7.5, color="#52606d")
@@ -159,7 +175,7 @@ def figure(Tb, days, out_png: Path, out_plot: Path):
             "morphine)", fontsize=11, fontweight="bold", color="#1f3a5f", va="center")
     cell(0, 0, "mouse (group)", face="#1f3a5f", bold=True, col="white")
     for j, d in enumerate(days):
-        cell(j + 1, 0, f"day {d} · {phase(d)[0]}", face="#1f3a5f", bold=True, col="white")
+        cell(j + 1, 0, f"day {d}\n{phase(d)[0]}", face="#1f3a5f", bold=True, col="white", size=9.5)   # 2 lines (11-24)
     for i, (c, m) in enumerate(MICE, start=1):
         g = Tb[(Tb.cage == c) & (Tb.mouse == m)]
         grp = g.group.iloc[0] if len(g) else ""

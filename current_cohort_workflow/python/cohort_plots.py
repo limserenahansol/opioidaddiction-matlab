@@ -34,6 +34,30 @@ from scipy import stats
 
 PHASES = [("Pre", 3, 5), ("During", 6, 10), ("Post", 11, 13), ("Withdrawal", 14, 16), ("Re-exposure", 17, 18)]
 TRANSITION_DAYS = {4, 6, 11, 14, 17}
+# names drawn on the figures (lab rule, mrpe docs/07 rule 2, 2026-11-24 review): the keys above stay internal
+LAB = {"Pre": "Baseline 3-5", "During": "Yoked 6-10", "Post": "Equal Access 11-13", "Withdrawal": "Withdrawal 14-16",
+       "Re-exposure": "Re-exposure 17-18"}
+
+
+def lab(ph):
+    return LAB.get(ph, ph)
+
+
+def left_out():
+    return f"days {', '.join(str(d) for d in sorted(TRANSITION_DAYS))} left out" if TRANSITION_DAYS else "all days"
+
+
+def gap_series(x, y):
+    """x, y with NaN at missing days, so a line does not run across days without a value (e.g. Passive Yoked days)"""
+    x = np.asarray(x, dtype=float); y = np.asarray(y, dtype=float)
+    if len(x) < 2:
+        return x, y
+    xs, ys = [x[0]], [y[0]]
+    for a, b, v in zip(x[:-1], x[1:], y[1:]):
+        if b - a > 1:
+            xs.append((a + b) / 2); ys.append(np.nan)
+        xs.append(b); ys.append(v)
+    return np.array(xs), np.array(ys)
 GCOL = {"Active": "#c0392b", "Passive": "#2c6fbb"}
 BOUT_GAP_S = 1.0          # bout = licks separated by < 1 s (analyze_passive_active_dashboard_dec2)
 COLS = ["mouse_key", "day_index", "session_idx", "Session_Paradigm", "isPassive", "RequirementLast",
@@ -209,7 +233,9 @@ def box_by_phase(ax, M, col, phases, title):
     for i, (p, q) in enumerate(zip(pv, adj)):
         if np.isfinite(p):
             ax.text(i, top * 1.05 if top > 0 else top + 0.5, f"p={p:.3g}\n{stars(q)} (Holm)", ha="center", fontsize=7)
-    ax.set_xticks(range(len(phases))); ax.set_xticklabels(phases); ax.set_title(title, fontsize=10, loc="left")
+    ax.set_xticks(range(len(phases))); ax.set_xticklabels([lab(ph).replace(" ", "\n", 1) if len(lab(ph)) > 12 else lab(ph)
+                                                           for ph in phases], fontsize=8)
+    ax.set_title(title, fontsize=10, loc="left")
     ax.axhline(0, color="0.7", lw=0.5)
 
 
@@ -227,12 +253,14 @@ def figures(D, T, P, out):
             X = D4[D4.group == g]
             X = X[~((g == "Passive") & X.day_index.between(6, 10))]
             for mk, m in X.groupby("mouse_key"):
-                ax.plot(m.day_index, m.RequirementLast, "-o", color=GCOL[g], alpha=0.35, ms=3, lw=0.8)
+                m = m.sort_values("day_index")
+                ax.plot(*gap_series(m.day_index, m.RequirementLast), "-o", color=GCOL[g], alpha=0.35, ms=3, lw=0.8)
             mm = X.groupby("day_index").RequirementLast.mean()
-            ax.plot(mm.index, mm.values, "-", color="k", lw=2.2, label="group mean")
+            ax.plot(*gap_series(mm.index, mm.values), "-o", color="k", lw=2.2, ms=4.5, label="group mean")
             for _, a, b in PHASES[1:]:
                 ax.axvline(a - 0.5, color="0.8", ls=":")
-            ax.set_title(f"PR01  {g}: daily PR (RequirementLast)", loc="left", fontsize=10); ax.set_xlabel("day")
+            ax.set_title(f"PR01  {g}: daily PR (RequirementLast)" + (" · no own PR on the Yoked days 6-10"
+                         if g == "Passive" else ""), loc="left", fontsize=10); ax.set_xlabel("day")
         axs[0].set_ylabel("RequirementLast"); save(fig, out, "PR01_daily_PR_spaghetti", made)
     else:
         skipped.append("PR01 (no PR days yet)")
@@ -249,7 +277,7 @@ def figures(D, T, P, out):
         M["delta_from_pre"] = M.RequirementLast - [pre.get((c, m), np.nan) for c, m in zip(M.cohort, M.mouse_key)]
         fig, ax = plt.subplots(figsize=(1.9 * len(ph) + 2, 4))
         box_by_phase(ax, M[M.phase.isin(ph) & (M.phase != "Pre")], "delta_from_pre", [p for p in ph if p != "Pre"],
-                     "PR03  delta PR from Pre (phase median - Pre median)")
+                     "PR03  delta PR from Baseline (phase median - Baseline median)")
         ax.set_ylabel("delta RequirementLast"); save(fig, out, "PR03_delta_PR_from_Pre", made)
     else:
         skipped.append("PR03 (needs Pre and a later phase)")
@@ -266,7 +294,8 @@ def figures(D, T, P, out):
         for d, q in zip(days, holm(pv)):
             ax.text(d, ax.get_ylim()[1] * 0.97, stars(q), ha="center", fontsize=8)
         ax.axvline(13.5, color="0.7", ls=":"); ax.axvline(16.5, color="0.7", ls=":")
-        ax.set_title("PR06  Post -> Withdrawal -> Re-exposure (mean +- SEM; stars = Holm-adjusted MWU)", loc="left", fontsize=10)
+        ax.set_title(f"PR06  {lab('Post')} -> {lab('Withdrawal')} -> {lab('Re-exposure')} (mean +- SEM; stars = Holm-adjusted MWU)",
+                     loc="left", fontsize=10)
         ax.set_xlabel("day"); ax.set_ylabel("RequirementLast"); ax.legend(); save(fig, out, "PR06_PR_trajectory_post_to_reexposure", made)
     else:
         skipped.append("PR06 (needs day 11-18)")
@@ -294,28 +323,29 @@ def figures(D, T, P, out):
                 xs = np.linspace(L.Pre.min(), L.Pre.max(), 10)
                 for g, gv in (("Active", 1), ("Passive", 0)):
                     ax.plot(xs, b[0] + b[1] * xs + b[2] * gv, color=GCOL[g], lw=1)
-                ax.set_title(f"PR07/PR11  {oc} - Pre vs Pre (ANCOVA group p={pF:.3g}; MWU p={mwu(L[L.group=='Active'].eff, L[L.group=='Passive'].eff):.3g})",
+                ax.set_title(f"PR07/PR11  {lab(oc)} - Baseline vs Baseline (ANCOVA group p={pF:.3g}; MWU p={mwu(L[L.group=='Active'].eff, L[L.group=='Passive'].eff):.3g})",
                              loc="left", fontsize=9)
-            ax.set_xlabel("Pre median PR"); ax.set_ylabel(f"{oc} - Pre")
+            ax.set_xlabel("Baseline median PR"); ax.set_ylabel(f"{lab(oc)} - Baseline")
         axs[0][0].legend(); save(fig, out, "PR07_PR11_baseline_vs_morphine_effect", made)
     else:
         skipped.append("PR07/PR11 (needs Pre and Post or Re-exposure)")
 
     # LK01 cumulative licking within session by epoch (from the frame table is too heavy: use per-minute rate)
     # LK02 lick frequency delta from Pre, LK05 bout total duration delta from Pre
-    for fid, col, lab in (("LK02", "lick_freq_per_min", "licks / min"), ("LK05", "bout_totalDur_s", "bout total duration (s)")):
+    for fid, col, lab_ in (("LK02", "lick_freq_per_min", "licks / min"), ("LK05", "bout_totalDur_s", "bout total duration (s)")):
         Mm = phase_median(D, col)
         pre = Mm[Mm.phase == "Pre"].set_index(["cohort", "mouse_key"])[col]
         later = [p for p in present if p != "Pre"]
         if len(pre) and later:
             Mm["d"] = Mm[col] - [pre.get((c, m), np.nan) for c, m in zip(Mm.cohort, Mm.mouse_key)]
             fig, ax = plt.subplots(figsize=(1.9 * len(later) + 2, 4))
-            box_by_phase(ax, Mm[Mm.phase.isin(later)], "d", later, f"{fid}  {lab}: phase median - Pre (passive days 6-10 masked; bout gap {BOUT_GAP_S:g} s; days {sorted(TRANSITION_DAYS)} excluded)")
-            ax.set_ylabel(f"delta {lab}"); save(fig, out, f"{fid}_{col}_delta_from_Pre", made)
+            box_by_phase(ax, Mm[Mm.phase.isin(later)], "d", later, f"{fid}  {lab_}: phase median - Baseline (passive days 6-10 masked; bout gap {BOUT_GAP_S:g} s; days {sorted(TRANSITION_DAYS)} excluded)")
+            ax.set_ylabel(f"delta {lab_}"); save(fig, out, f"{fid}_{col}_delta_from_Pre", made)
         else:
             skipped.append(f"{fid} (needs Pre and a later phase)")
 
     # TJ02 lick density over the full trial window vs PR level (requirement), by phase
+    # TJ02 uses every day: the previous cohort's step08 PR-lick trial curves left no day out (prev_cohort_day_rules.csv)
     if len(T) and T.phase.notna().any():
         phs = [p for p in present if (T.phase == p).any()]
         fig, axs = plt.subplots(1, len(phs), figsize=(3.6 * len(phs), 3.6), sharey=True, squeeze=False)
@@ -327,13 +357,16 @@ def figures(D, T, P, out):
                 st = st[st["count"] >= 2]
                 if len(st):
                     ax.plot(st.index, st["mean"], color=GCOL[g], label=g); ax.fill_between(st.index, st["mean"] - st["sem"], st["mean"] + st["sem"], color=GCOL[g], alpha=0.2)
-            ax.set_title(f"TJ02  {p}", loc="left", fontsize=10); ax.set_xlabel("PR level (TrialRequirement)")
-        axs[0][0].set_ylabel("licks / s in trial window"); axs[0][0].legend(); save(fig, out, "TJ02_lick_density_vs_PR_level", made)
+            ax.set_title(f"TJ02  {lab(p)}", loc="left", fontsize=10); ax.set_xlabel("PR level (TrialRequirement)")
+        axs[0][0].set_ylabel("licks / s in trial window"); axs[0][0].legend()
+        fig.suptitle("TJ02 lick density vs PR level · all days (as the previous cohort's step08) · mean +- SEM over trials",
+                     fontsize=9, x=0.01, ha="left")
+        fig.tight_layout(); save(fig, out, "TJ02_lick_density_vs_PR_level", made)
     else:
         skipped.append("TJ02 (needs PR trials)")
 
     # PU01 session pupil trajectory, PU03 % change from Pre, PU04 phase means
-    Pp = D[(D.day_index >= 3) & (D.pupil_coverage > 0.5)]
+    Pp = D[(D.day_index >= 3) & (D.pupil_coverage > 0.5) & ~D.day_index.isin(TRANSITION_DAYS)]   # review 2026-11-24
     if Pp.pupil_mean_px.notna().any():
         fig, axs = plt.subplots(1, 2, figsize=(12, 4))
         for g in ("Active", "Passive"):
@@ -344,15 +377,16 @@ def figures(D, T, P, out):
             base = q[q.phase == "Pre"].groupby("mouse_key").pupil_mean_px.mean()
             q = q.assign(pct=100 * (q.pupil_mean_px / q.mouse_key.map(base) - 1))
             st = q.groupby("day_index").pct.agg(["mean", "sem"]); axs[1].errorbar(st.index, st["mean"], st["sem"], color=GCOL[g], lw=2, label=g)
-        axs[0].set_title("PU01  session pupil diameter (px), sessions with > 50 % tracked frames", loc="left", fontsize=9)
-        axs[1].set_title("PU03  pupil % change from the mouse's Pre mean", loc="left", fontsize=9)
+        axs[0].set_title(f"PU01  session pupil diameter (px), > 50 % tracked frames · {left_out()}", loc="left", fontsize=9)
+        axs[1].set_title(f"PU03  pupil % change from the mouse's Baseline mean · {left_out()}", loc="left", fontsize=9)
         for ax in axs:
             ax.set_xlabel("day"); ax.legend()
         save(fig, out, "PU01_PU03_pupil_trajectory", made)
         Mp = phase_median(Pp, "pupil_mean_px", exclude_transition=False)
         if len(present):
             fig, ax = plt.subplots(figsize=(1.9 * len(present) + 2, 4))
-            box_by_phase(ax, Mp, "pupil_mean_px", present, "PU04  pupil phase median (px)")
+            box_by_phase(ax, Mp, "pupil_mean_px", [p for p in present if (Mp.phase == p).any()],
+                         f"PU04  pupil phase median (px) · {left_out()}")
             save(fig, out, "PU04_pupil_phase_median", made)
     else:
         skipped.append("PU01/PU03/PU04 (no sessions with > 50 % tracked pupil frames)")
@@ -362,6 +396,7 @@ def figures(D, T, P, out):
         S = pd.DataFrame([dict(cohort=s["cohort"], mouse_key=s["mouse_key"], day_index=s["day_index"], t=t, y=y)
                           for s in P for t, y in zip(s["t"], s["y"])])
         S = S.merge(D[["cohort", "mouse_key", "day_index", "group", "phase"]], on=["cohort", "mouse_key", "day_index"])
+        S = S[~S.day_index.isin(TRANSITION_DAYS)]                     # the folder's day set (review 2026-11-24)
         phs = [p for p in present if (S.phase == p).any()]
         if phs:
             fig, axs = plt.subplots(1, len(phs), figsize=(3.6 * len(phs), 3.4), sharey=True, squeeze=False)
@@ -371,20 +406,23 @@ def figures(D, T, P, out):
                     if len(q):
                         mm = q.groupby(["mouse_key", "t"]).y.mean().groupby("t").agg(["mean", "sem"])
                         ax.plot(mm.index, mm["mean"], color=GCOL[g], label=g); ax.fill_between(mm.index, mm["mean"] - mm["sem"], mm["mean"] + mm["sem"], color=GCOL[g], alpha=0.2)
-                ax.axvline(0, color="k", lw=0.6); ax.set_title(f"PU06  {p}", loc="left", fontsize=10); ax.set_xlabel("s from reward")
-            axs[0][0].set_ylabel("pupil change (px, -2..0 s baseline)"); axs[0][0].legend(); save(fig, out, "PU06_reward_locked_pupil", made)
+                ax.axvline(0, color="k", lw=0.6); ax.set_title(f"PU06  {lab(p)}", loc="left", fontsize=10); ax.set_xlabel("s from reward")
+            axs[0][0].set_ylabel("pupil change (px, -2..0 s baseline)"); axs[0][0].legend()
+            fig.suptitle(f"PU06 reward-locked pupil · {left_out()}", fontsize=9, x=0.01, ha="left")
+            fig.tight_layout(); save(fig, out, "PU06_reward_locked_pupil", made)
     else:
         skipped.append("PU06 (no tracked pupil around rewards)")
 
     # AS01 tail immersion per day; AS02 HP, AS03 TST, AS04 Straub (delta from Pre / raw by phase)
     if D.Immersion_Latency_s.notna().any():
-        fig, ax = plt.subplots(figsize=(8, 4)); X = D.dropna(subset=["Immersion_Latency_s"]); days = sorted(X.day_index.unique())
+        fig, ax = plt.subplots(figsize=(8, 4)); X = D.dropna(subset=["Immersion_Latency_s"])
+        X = X[~X.day_index.isin(TRANSITION_DAYS)]; days = sorted(X.day_index.unique())   # review 2026-11-24
         for g in ("Active", "Passive"):
             st = X[X.group == g].groupby("day_index").Immersion_Latency_s.agg(["mean", "sem"]); ax.errorbar(st.index, st["mean"], st["sem"], color=GCOL[g], marker="o", capsize=3, label=g)
         pv = [mwu(X[(X.day_index == d) & (X.group == "Active")].Immersion_Latency_s, X[(X.day_index == d) & (X.group == "Passive")].Immersion_Latency_s) for d in days]
         for d, q in zip(days, holm(pv)):
             ax.text(d, ax.get_ylim()[1] * 0.97, stars(q), ha="center", fontsize=8)
-        ax.set_title("AS01  tail immersion latency (s), mean +- SEM, Holm-adjusted MWU", loc="left", fontsize=10); ax.legend(); ax.set_xlabel("day")
+        ax.set_title(f"AS01  tail immersion latency (s), mean +- SEM, Holm-adjusted MWU · {left_out()}", loc="left", fontsize=10); ax.legend(); ax.set_xlabel("day")
         save(fig, out, "AS01_tail_immersion_by_day", made)
     else:
         skipped.append("AS01 (no Immersion_Latency_s yet)")
@@ -403,7 +441,7 @@ def figures(D, T, P, out):
 
     # MV15 behavioural-space divergence: cosine / Euclidean distance of the Active and Passive centroids per phase
     feats = ["RequirementLast", "lick_freq_per_min", "bout_n", "bout_totalDur_s", "rew_n", "rew_freq_per_min", "req_speed_per_min"]
-    Z = D[(D.day_index >= 3)].dropna(subset=["phase"]).copy()
+    Z = D[(D.day_index >= 3) & ~D.day_index.isin(TRANSITION_DAYS)].dropna(subset=["phase"]).copy()   # 11-24 review
     if len(Z) and Z.group.nunique() == 2:
         Zs = Z[feats].apply(lambda c: (c - c.mean()) / (c.std() if c.std() > 0 else 1))
         Z[feats] = Zs
@@ -417,8 +455,9 @@ def figures(D, T, P, out):
         if rows:
             R = pd.DataFrame(rows, columns=["phase", "cosine", "euclidean", "n_features"])
             fig, axs = plt.subplots(1, 2, figsize=(10, 3.6))
-            axs[0].bar(R.phase, R.cosine, color="0.4"); axs[0].set_title("MV15  cosine similarity of group centroids", loc="left", fontsize=10)
-            axs[1].bar(R.phase, R.euclidean, color="0.4"); axs[1].set_title("MV15  Euclidean distance (z-scored features)", loc="left", fontsize=10)
+            names = [lab(p).replace(" ", "\n", 1) for p in R.phase]
+            axs[0].bar(names, R.cosine, color="0.4"); axs[0].set_title(f"MV15  cosine similarity of group centroids · {left_out()}", loc="left", fontsize=9)
+            axs[1].bar(names, R.euclidean, color="0.4"); axs[1].set_title("MV15  Euclidean distance (z-scored features)", loc="left", fontsize=9)
             save(fig, out, "MV15_group_centroid_divergence", made)
             R.to_csv(out / "MV15_group_centroid_divergence.csv", index=False)
     else:

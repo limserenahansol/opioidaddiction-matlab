@@ -402,7 +402,8 @@ def fig_pr(SS, M, out):
     axes[1].plot(range(len(m)), m["pr_last_completed_req"], "kD", label="last completed requirement")
     for i, v in enumerate(m["pr_breakpoint"]):
         axes[1].text(i, v, f"{v:g}", ha="center", va="bottom", fontsize=9)
-    axes[1].set_xticks(range(len(m))); axes[1].set_xticklabels([f"{r.mouse}\nd{r.day}" for r in m.itertuples()], fontsize=8)
+    axes[1].set_xticks(range(len(m)))
+    axes[1].set_xticklabels([str(r.mouse).replace("_", "\n") for r in m.itertuples()], fontsize=7.5)  # review 11-24
     axes[1].set_title("PR breakpoint (full session)"); axes[1].legend(fontsize=7); axes[1].grid(axis="y", alpha=0.3)
     fig.tight_layout(); fig.savefig(out / "09_pr_breakpoint.png", dpi=130); plt.close(fig)
     return True
@@ -635,6 +636,25 @@ def fig_dashboard(out, title="", name="00_dashboard.png"):
     fig.tight_layout(); fig.savefig(out / name, dpi=80); plt.close(fig)
 
 
+# 2026-11-24 (independent review): the Passive spout is inside the mouth (user 2026-11-19), so a replay session's lick
+# line holds contacts, not licks; the whole-eye mice (eye damage) give the eye-opening size, not a pupil. Both are left
+# out of group statistics and of the lick panels (per-mouse rows still show them, labelled by task / pupil grade).
+LICK_COLS = {"licks", "licks_frame", "licks_valid", "licks_per_min", "licks_per_reward", "bouts_per_min",
+             "mean_licks_per_bout", "bout_count", "licks_lockout", "python_only_licks", "time_to_reward_median_s",
+             "bout_time_s", "duty_cycle", "within_bout_ili_ms", "lick_rate_in_bout_hz", "ili_under_80ms_pct"}
+PUPIL_COLS = {"pupil_median_px", "pupil_reward_response_pct"}
+PUPIL_LEAVE_OUT = {"whole_eye", "guess", "no_pupil"}          # as results_plots.LEAVE_OUT_GRADES
+
+
+def stat_rows(sub: pd.DataFrame, col: str) -> pd.DataFrame:
+    """the rows a group statistic of `col` may use (no Passive replay for lick columns, no whole eye for pupil)"""
+    if col in LICK_COLS and "task" in sub.columns:
+        sub = sub[sub["task"].astype(str) != "PASSIVE"]
+    if col in PUPIL_COLS and "pupil_grade" in sub.columns:
+        sub = sub[~sub["pupil_grade"].astype(str).isin(PUPIL_LEAVE_OUT)]
+    return sub
+
+
 def fig_across_days(MD, out):
     """Across-day spaghetti (first 15 min 10 s of every session): one line per mouse."""
     keys = [("licks_per_min", "licks / min"), ("rewards", "rewards"), ("licks_per_reward", "licks / reward"),
@@ -649,6 +669,15 @@ def fig_across_days(MD, out):
     fig, axes = plt.subplots(rows, cols, figsize=(5 * cols, 4 * rows), squeeze=False)
     for ax in axes.ravel()[len(keys):]:
         ax.axis("off")
+    MD = MD.copy()
+    if "task" in MD.columns:                                  # Passive replays: contacts, not licks (review 2026-11-24)
+        rp = MD["task"].astype(str) == "PASSIVE"
+        for k_ in LICK_COLS & set(MD.columns):
+            MD.loc[rp, k_] = np.nan
+    if "pupil_grade" in MD.columns:                           # whole-eye mice: eye opening, not the pupil (11-24)
+        we = MD["pupil_grade"].astype(str).isin(PUPIL_LEAVE_OUT)
+        for k_ in PUPIL_COLS & set(MD.columns):
+            MD.loc[we, k_] = np.nan
     for ax, (k, t) in zip(axes.ravel(), keys):
         for mouse, d in MD.groupby("mouse"):
             d = d.sort_values("day")
@@ -657,7 +686,8 @@ def fig_across_days(MD, out):
         ax.set_xlabel("day"); ax.set_title(t); ax.grid(alpha=0.3)
         ax.set_xticks(sorted(MD["day"].dropna().unique()))
     axes[0, 0].legend(fontsize=7, ncol=2)
-    fig.suptitle("across days - first 15 min 10 s of each session (solid = female, dashed = male)")
+    fig.suptitle("across days - first 15 min 10 s of each session (solid = female, dashed = male; lick panels leave "
+                 "out the Passive replay sessions: spout in the mouth; pupil leaves out the whole-eye mice)")
     fig.tight_layout(); fig.savefig(out / "across_days_metrics.png", dpi=110); plt.close(fig)
 
 
@@ -906,7 +936,7 @@ def fig_day_summary_table(root: Path, d, Md: pd.DataFrame, MDall: pd.DataFrame, 
             if c == "mouse":
                 row.append(label)
             elif c in num and len(sub):
-                v = pd.to_numeric(sub[c], errors="coerce").dropna()
+                v = pd.to_numeric(stat_rows(sub, c)[c], errors="coerce").dropna()
                 if not len(v):
                     row.append("-")
                 elif how == "sum" and c in ("licks", "licks_frame", "licks_valid", "rewards", "bout_count", "licks_lockout",
@@ -948,10 +978,14 @@ def fig_day_summary_table(root: Path, d, Md: pd.DataFrame, MDall: pd.DataFrame, 
                                 "check": "#fff1c2", "guess": "#f9d2cd", "no_pupil": "#f9d2cd"}.get(txt, "white"))
     task = ", ".join(sorted(set(m["task"].astype(str))))
     ax.set_title(f"day {d}  -  {len(m)} mice  ({task}; first 15 min 10 s; licks: Saleae contacts, Python valid; "
-                 f"*old method = Lick_TTL read at every camera frame, whole session; PR breakpoint = max PR trial)",
+                 f"*old method = Lick_TTL read at every camera frame, whole session; PR breakpoint = max PR trial; "
+                 f"group rows: lick columns without Passive replays, pupil columns without the whole-eye mice)",
                  fontsize=10, loc="left")
     MD = MDall.copy()
-    for k, (col, lab) in enumerate((("pr_breakpoint", "PR breakpoint"), ("licks", "licks (Saleae, first 15:10)"))):
+    if "task" in MD.columns:                                  # Passive replays: contacts, not licks (review 2026-11-24)
+        MD.loc[MD["task"].astype(str) == "PASSIVE", "licks"] = np.nan
+    for k, (col, lab) in enumerate((("pr_breakpoint", "PR breakpoint"),
+                                    ("licks", "licks (Saleae, first 15:10; Passive replays left out)"))):
         a = fig.add_subplot(gs[1, k])
         if col in MD and MD[col].notna().any():
             for mo, g in MD.groupby("mouse"):
@@ -984,12 +1018,14 @@ def write_day_summary(path: Path, d, Md: pd.DataFrame, SSd, pupil_notes: dict):
         lines.append(m[cols].round(2).to_string(index=False))
     lines += ["", "Group means (first 15:10):"]
     for k in ("licks_per_min", "rewards", "licks_per_reward", "pr_breakpoint", "pupil_reward_response_pct"):
-        v = m[k].dropna()
+        v = stat_rows(m, k)[k].dropna()                        # no replay 'licks', no whole eye (review 2026-11-24)
         if len(v):
             lines.append(f"  {k:28s} mean {v.mean():8.2f}   SD {v.std(ddof=1) if len(v) > 1 else 0:7.2f}   n={len(v)}")
     for sex, g in m.groupby("sex"):
         if sex:
-            lines.append(f"  {sex}: licks/min {g['licks_per_min'].mean():.1f}, rewards {g['rewards'].mean():.1f} (n={len(g)})")
+            gl = stat_rows(g, "licks_per_min")
+            lines.append(f"  {sex}: licks/min {gl['licks_per_min'].mean():.1f} (n={len(gl)}), rewards "
+                         f"{g['rewards'].mean():.1f} (n={len(g)})")
     # .loc[[mo]] keeps working when one mouse has two sessions on the same day (duplicate index)
     long = list(dict.fromkeys(mo for mo in m["mouse"]
                               if mo in full.index and full.loc[[mo], "duration_min"].max() > 15.5))

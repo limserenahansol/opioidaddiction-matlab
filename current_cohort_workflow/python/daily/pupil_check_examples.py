@@ -359,22 +359,39 @@ def session_png(s, frames, V):
     ks1, ks2 = s["ks1"], s["ks2"]
     W = 4 * (TW + GAP) + GAP
     HEAD, CAP, STRIP = 150, 44, 210
+    v, note = V.get((s["day"], s["cage"], s["mouse"]), ("", ""))
+    # 2026-11-24 (review): the note ran off the right edge; wrap it to the picture width (at most 3 lines)
+    chk = (f"Claude's check: {v.upper()}" if v else "Claude's check: (not looked at yet)") + (f" - {note}" if note else "")
+    chk = " ".join(chk.split())         # a line break in a note would stop Pillow's textlength (review 11-24)
+    fnt = PES.font(18, True)
+    probe = ImageDraw.Draw(Image.new("RGB", (8, 8)))
+    wrapped, cur = [], ""
+    for word in chk.split(" "):
+        t = (cur + " " + word).strip()
+        if cur and probe.textlength(t, font=fnt) > W - 2 * GAP:
+            wrapped.append(cur); cur = word
+        else:
+            cur = t
+    wrapped.append(cur)
+    if len(wrapped) > 3:
+        wrapped = wrapped[:3]; wrapped[2] = wrapped[2].rsplit(" ", 1)[0] + " …"
+    extra = 24 * (len(wrapped) - 1)
+    HEAD += extra
     H = HEAD + 2 * (TH + CAP + GAP) + STRIP + 40
     S = Image.new("RGB", (W, H), "white")
     dr = ImageDraw.Draw(S)
     o = s["nums"]
-    v, note = V.get((s["day"], s["cage"], s["mouse"]), ("", ""))
     col = {"ok": (30, 110, 50), "noisy": (150, 105, 0)}.get(v.split()[0].lower() if v else "", (90, 90, 90))
     dr.text((GAP, 8), f"Day {s['day']} · {s['cage']} {s['mouse']} · table = {s['src']} · median {s['med']:.1f} px",
             fill=(0, 0, 0), font=PES.font(24, True))
     dr.text((GAP, 42), count_line(s, o), fill=(0, 0, 0), font=PES.font(18, True))
     dr.text((GAP, 68), detail_line(s, o), fill=(70, 70, 70), font=PES.font(15))
-    dr.text((GAP, 92), (f"Claude's check: {v.upper()}" if v else "Claude's check: (not looked at yet)") +
-            (f" - {note}" if note else ""), fill=col, font=PES.font(18, True))
+    for i_, line_ in enumerate(wrapped):
+        dr.text((GAP, 92 + 24 * i_), line_, fill=col, font=fnt)
     leg = ("pink = the eye model's mask (dotted: the box of the mask; orange = off eye)" if s["kind"] == "eye" else
            "green = the pupil in the table · orange dotted = what the detector found in that frame (shown when "
            "out or different)")
-    dr.text((GAP, 120), "row 1: spread over the session · row 2: out frames · " + leg, fill=(90, 90, 90),
+    dr.text((GAP, 120 + extra), "row 1: spread over the session · row 2: out frames · " + leg, fill=(90, 90, 90),
             font=PES.font(14))
     for r_, ks in enumerate((ks1, ks2)):
         y = HEAD + r_ * (TH + CAP + GAP)
@@ -441,7 +458,7 @@ def none_png(s):
 
 def overview(recs, frames, V, days, out):
     tw, th, cap = 300, 240, 58
-    LAB, HEAD = 70, 130
+    LAB, HEAD = 92, 130             # 92 (was 70): 'day 10' / 'day 11' lost their last digit (review 2026-11-24)
     W = LAB + len(MICE) * (tw + 8)
     H = HEAD + len(days) * (th + cap + 8) + 30
     S = Image.new("RGB", (W, H), (250, 250, 250))
@@ -454,7 +471,7 @@ def overview(recs, frames, V, days, out):
                       "before its smoothing, or the blob the repair replaced) · pink = whole eye (eye damage)",
             fill=(60, 60, 60), font=PES.font(16))
     dr.text((12, 68), "BORDER + caption = Claude's check: green = OK, yellow = NOISY, grey = no video · out % = frames "
-                      "the table fills from the neighbours (held + jumps + odd size / no eye + off eye)",
+                      "held by the tracker (its last value) + jumps + odd sizes (these stay in the table) / no eye + off eye",
             fill=(60, 60, 60), font=PES.font(16))
     for j, (c, m) in enumerate(MICE):
         dr.text((LAB + j * (tw + 8) + 6, 100), f"{c} {m}", fill=(20, 20, 20), font=PES.font(19, True))
@@ -477,7 +494,8 @@ def overview(recs, frames, V, days, out):
             colr = {"ok": (40, 150, 60), "noisy": (215, 160, 0)}.get(vv, (150, 150, 150))
             dr.rectangle([x - 3, y - 3, x + tw + 2, y + th + 2], outline=colr, width=4)
             o = s["nums"]
-            dr.text((x + 2, y + th + 4), (v.upper() if v else "not checked") + f" · out {o['out_pct']:.1f} %",
+            op = 100 * o["out_n"] / o["n_frames"] if o.get("n_frames") else o["out_pct"]   # one rounding (11-24)
+            dr.text((x + 2, y + th + 4), (v.upper() if v else "not checked") + f" · out {op:.1f} %",
                     fill=colr if vv else (90, 90, 90), font=PES.font(17, True))
             dr.text((x + 2, y + th + 26), f"{o['out_n']:,} of {o['n_frames']:,} frames · median {s['med']:.0f} px",
                     fill=(60, 60, 60), font=PES.font(14))

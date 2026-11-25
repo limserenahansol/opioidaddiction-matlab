@@ -125,7 +125,8 @@ def panel(ax, D, key, title, ylabel, note, yr, first):
         ax.spines[["top", "right"]].set_visible(False)
         return
     dd = sorted(int(x) for x in g.day.unique())
-    TI.draw_plot(ax, g.rename(columns={"value": "latency_s"}), dd)
+    TI.draw_plot(ax, g.rename(columns={"value": "latency_s"}), dd,
+                 break_gaps=key in ("pr", "licks_per_min"))   # Passive: no own PR / licks on the Yoked days (11-24)
     ax.set_ylabel(ylabel)
     if yr is not None:
         ax.set_ylim(*yr)

@@ -317,10 +317,10 @@ def assays_slide(prs, blank, N, foot):
     table(s, 0.5, 1.45, widths, header, rows, "Assays table", size=10, head_size=10)
     MS.add_text(s, 0.5, 6.2, 12.3, 0.75,
                 f"The original Step 02 reads them from assays\\day{N}\\<cage>\\<mouse>\\ (TI: *_immersion_day{N}.csv, "
-                f"cell B1 · TST: ManualScoringResults_*_TST_day{N}_AUTO.mat · HOT: ManualScoringResults_*_HOT_day{N}_"
-                f"first30s.mat) · TST examples: analysis\\tst\\day{N}\\examples\\ · table: analysis\\days\\day{N}\\"
-                f"assays_day{N}.csv · yellow = the camera moved during that TST video; the moved frames were aligned "
-                "before scoring" + (" · yellow Straub = your hand score (over the counting frames)" if ST is not None
+                f"cell B1" + (" · TST: ManualScoringResults_*TST*_AUTO.mat · HOT: ManualScoringResults_*HOT*_first30s.mat) · "
+                              f"TST examples: analysis\\tst\\day{N}\\examples\\" if tst_day else ")") +
+                f" · table: analysis\\days\\day{N}\\assays_day{N}.csv" + (" · yellow = the camera moved during that "
+                "TST video; the moved frames were aligned before scoring" if tst_day else "") + (" · yellow Straub = your hand score (over the counting frames)" if ST is not None
                                     else "") + (f" · Straub: analysis\\days\\day{N}\\straub_day{N}.csv, frames + traces in "
                                     f"analysis\\straub_auto\\day{N}\\ (vertical = rearing / grooming frames, not counted)"
                                     if ST is not None else ""), size=10, color=MUTED, name="Assays note")
@@ -599,7 +599,8 @@ def pupil_check_slides(prs, blank, days, foot):
             st = {"ok": "green", "noisy": "yellow"}.get(v, "red")
             eye = " · eye" if str(r.grade) == "whole_eye" else ""
             MS.style_cell(cell, [[((v.upper() if v else "LOOK"), {"bold": True, "color": QC_TEXT[st]})],
-                                 [(f"out {r.out_pct:.1f} %{eye}", {"size": pt - 2, "color": TEXT})]],
+                                 [(f"out {(100 * r.out_n / r.n_frames if 'out_n' in r.index and r.n_frames == r.n_frames and r.n_frames else r.out_pct):.1f} %{eye}",
+                                   {"size": pt - 2, "color": TEXT})]],          # one rounding (review 2026-11-24)
                           QC_FILL[st], size=pt, align=PP_ALIGN.CENTER)
     vc = C[C.out_pct.notna()].verdict.str.lower().value_counts()
     nv = int(C.out_pct.isna().sum())
@@ -619,6 +620,41 @@ def pupil_check_slides(prs, blank, days, foot):
     return C
 
 
+def pr_group_medians(X) -> str:
+    """'Active 31.5 · Passive 15.5' for one day's PR rows (groups from cohort_manifest.csv; review 2026-11-24)"""
+    G = TI.groups()
+    g = X.apply(lambda r: G.get((str(r.cage), str(r.color)), ("", ""))[0], axis=1)
+    return " · ".join(f"{k} {X.pr_RL_full[g == k].median():g}" for k in ("Active", "Passive")
+                      if X.pr_RL_full[g == k].notna().any())
+
+
+def pr_compare(PRT, N, prev, with_new=True) -> str:
+    """like-for-like PR comparison of day N with the previous PR day (independent review 2026-11-24: the day-11 deck
+    compared the day-10 median of the 4 Active mice with the day-11 median of all 8 mice, which read as a PR drop):
+    the mice with a PR on both days, and apart the mice whose first own PR comes on day N (their day-`prev` sessions
+    were passive replays without a PR)"""
+    X, Y = PRT[N], PRT[prev]
+    Yc = Y[["cage", "color", "pr_RL_full"]].copy()
+    Yc["replay_prev"] = Y["paradigm"].astype(str).str.contains("Replay", case=False) if "paradigm" in Y else False
+    m = X.merge(Yc, on=["cage", "color"], how="left", suffixes=("", "_prev"))
+    both = m[m.pr_RL_full.notna() & m.pr_RL_full_prev.notna()]
+    new = m[m.pr_RL_full.notna() & m.pr_RL_full_prev.isna()]
+    rep, oth = new[new.replay_prev.fillna(False).astype(bool)], new[~new.replay_prev.fillna(False).astype(bool)]
+    mice = lambda k: f"{k} mouse" if k == 1 else f"{k} mice"
+    txt = ""
+    if len(both):
+        big = both.loc[(both.pr_RL_full - both.pr_RL_full_prev).abs().idxmax()]
+        txt = (f"same {mice(len(both))}: PR median {both.pr_RL_full_prev.median():g} → {both.pr_RL_full.median():g} "
+               f"(biggest change {big.cage} {big.color} {big.pr_RL_full_prev:.0f} → {big.pr_RL_full:.0f})")
+    if with_new and len(rep):
+        txt += (("; " if txt else "") + f"{mice(len(rep))} with a passive replay on day {prev} (no own PR): "
+                f"day {N} median {rep.pr_RL_full.median():g}")
+    if with_new and len(oth):
+        txt += (("; " if txt else "") + f"{mice(len(oth))} without a PR on day {prev}: day {N} median "
+                f"{oth.pr_RL_full.median():g}")
+    return txt
+
+
 def pupil_appendix(prs, days, C):
     """one slide per session picture of the given days (the user's 40 examples of 2026-11-18; default the last day)"""
     for d in days:
@@ -631,7 +667,11 @@ def pupil_appendix(prs, days, C):
             note = str(r.note.iloc[0]) if len(r) and str(r.note.iloc[0]) not in ("", "nan") else ""
             title = f"Pupil check · day {d} · {c} {m}" + (f" · {v}" if v else "")
             if len(r) and pd.notna(r.out_pct.iloc[0]):
-                note = f"out {r.out_pct.iloc[0]:.1f} % of frames · " + note
+                on, nf = (r.out_n.iloc[0], r.n_frames.iloc[0]) if {"out_n", "n_frames"} <= set(r.columns) else (None, None)
+                pct = 100 * on / nf if on is not None and on == on and nf and nf == nf else r.out_pct.iloc[0]
+                note = f"out {pct:.1f} % of frames · " + note    # one rounding (review 2026-11-24: 4.3 vs 4.4 %)
+            if len(note) > 230:                  # the caption box holds 2 lines; the full note is on the picture / csv
+                note = note[:227].rsplit(" ", 1)[0] + " …"
             MS.image_slide(prs, f, title, note or "no pupil (see the picture)")
 
 
@@ -686,9 +726,10 @@ def build(days, out: Path, pupil_days=None):
         X = PRT[N]
         pas_n = PTb[(PTb.day == N) & (PTb.task == "PASSIVE")]
         act = " (active mice)" if len(pas_n) else ""
+        gm = pr_group_medians(X) if not len(pas_n) else ""
         lines.append([("PR (last requirement): ", {"bold": True}),
                       (f"median {X.pr_RL_full.median():g}, range {X.pr_RL_full.min():.0f}–{X.pr_RL_full.max():.0f}"
-                       + act, {})])
+                       + act + (f" ({gm})" if gm and " · " in gm else ""), {})])
         lines.append([("Rewards: ", {"bold": True}),
                       (f"median {X[X.pr_RL_full.notna()].rewards_python.median():g}{act}", {})])
         if len(pas_n):                          # days 6-10: the passive replays
@@ -696,13 +737,7 @@ def build(days, out: Path, pupil_days=None):
             lines.append([("Passive: ", {"bold": True}),
                           (f"{len(pas_n)} replays; rewards = the partner's in {nm}/{len(pas_n)}", {})])
         if len(prd) > 1:
-            Y = PRT[prd[-2]]
-            m = X.merge(Y[["cage", "color", "pr_RL_full"]], on=["cage", "color"], suffixes=("", "_prev"))
-            m["dpr"] = m.pr_RL_full - m.pr_RL_full_prev
-            big = m.loc[m.dpr.abs().idxmax()]
-            lines.append([("vs day %d: " % prd[-2], {"bold": True}),
-                          (f"PR median {Y.pr_RL_full.median():g} → {X.pr_RL_full.median():g}; biggest change "
-                           f"{big.cage} {big.color} {big.pr_RL_full_prev:.0f} → {big.pr_RL_full:.0f}", {})])
+            lines.append([("vs day %d: " % prd[-2], {"bold": True}), (pr_compare(PRT, N, prd[-2]), {})])
         ref = MS.read_csv(P / "analysis" / "reference" / "prev_cohort_pr_days3to5.csv", comment="#")
         rr = ref[ref["day"] == N]["req_last_910s"].dropna() if len(ref) else pd.Series(dtype=float)
         if len(rr):
@@ -891,7 +926,7 @@ def build(days, out: Path, pupil_days=None):
             is_p = ((PTb.day == d) & (PTb.cage == c) & (PTb.mouse == m) & (PTb.task == "PASSIVE")).any()
             l1 = ((f"R {int(r['rewards'])}" if pd.notna(r["rewards"]) else "R -")
                   + (f" · PR {int(r['pr'])}" if pd.notna(r["pr"]) else "") + (" · passive" if is_p else ""))
-            l2 = fl if fl not in ("", "nan") else "all fine"
+            l2 = fl if fl not in ("", "nan") else ("all fine" if st == "green" else "known · see the notes")  # 11-24
             MS.style_cell(t.cell(i, j + 1), [[(l1, {"bold": True, "color": QC_TEXT[st]})],
                                              [(l2, {"size": big_pt - 2, "color": TEXT})]],
                           QC_FILL[st], size=big_pt, align=PP_ALIGN.CENTER)
@@ -1041,12 +1076,15 @@ def build(days, out: Path, pupil_days=None):
     if across.exists():
         MS.image_slide(prs, across, "Basic plots 1 · across days, per mouse",
                        "First 15 min 10 s of each session · solid = female, dashed = male · PR breakpoint = last "
-                       "requirement · pupil panel: 9669m black and 9670f black are the WHOLE EYE (eye damage), not the pupil")
+                       "requirement · lick panels leave out the Passive replay sessions of days 6-10 (spout in the "
+                       "mouth: contacts, not licks) · pupil panel leaves out 9669m black and 9670f black (whole eye, "
+                       "eye damage)")
     if cfd is not None and (cfd / "PR01_daily_PR_spaghetti.png").exists():
         note = ""
         if N in prd and len(prd) > 1:
-            note = (f"day {N} median {PRT[N].pr_RL_full.median():g} (day {prd[-2]}: "
-                    f"{PRT[prd[-2]].pr_RL_full.median():g}) · ")
+            gm = pr_group_medians(PRT[N])
+            note = (f"day {N} PR median: {(gm or format(PRT[N].pr_RL_full.median(), 'g')).replace(' · ', ', ')} · "
+                    f"vs day {prd[-2]}: {pr_compare(PRT, N, prd[-2], with_new=False)} · ")
         man = MS.read_csv(P / "cohort_manifest.csv")
         grp_set = len(man) and "group" in man.columns and man.group.astype(str).str.strip().isin(
             ["Active", "Passive"]).any()
@@ -1059,8 +1097,12 @@ def build(days, out: Path, pupil_days=None):
         s = prs.slides.add_slide(blank)
         MS.add_text(s, 0.5, 0.25, 12.33, 0.5, "Basic plots 3 · licking vs PR level (TJ02) and pupil at reward (PU06)",
                     size=22, color=NAVY, bold=True, name="Title")
-        MS.add_text(s, 0.5, 0.78, 12.33, 0.34, "Previous cohort's figures, PR days so far (Pre phase) · mean ± SEM over "
-                    "mice · PU06 leaves out the 2 whole-eye mice", size=12, color=MUTED, name="Caption")
+        exm = re.search(r"excl([0-9-]+)", cfd.name)
+        exs = exm.group(1).replace("-", ", ") if exm else "none"
+        MS.add_text(s, 0.5, 0.78, 12.33, 0.34, "Previous cohort's figures by phase (Baseline 3-5, Yoked 6-10, Equal Access "
+                    "11-13) · TJ02: all days (as the previous cohort's step08), mean ± SEM over trials · PU06: days "
+                    f"{exs} left out (folder {cfd.name}; a phase's panel appears once it has a day that is not left "
+                    "out), mean ± SEM over mice, without the 2 whole-eye mice", size=10.5, color=MUTED, name="Caption")
         if tj.exists():
             picture(s, tj, 0.5, 1.25, 6.0, 5.85, "TJ02")
         if pu6.exists():
@@ -1069,15 +1111,19 @@ def build(days, out: Path, pupil_days=None):
     if cfd is not None and (cfd / "PU01_PU03_pupil_trajectory.png").exists():
         MS.image_slide(prs, cfd / "PU01_PU03_pupil_trajectory.png", "Basic plots 4 · pupil across days (PU01 / PU03)",
                        "Sessions with > 50 % tracked frames, PR days · 6 mice with a visible pupil (9669m black and "
-                       "9670f black = whole eye, left out)")
+                       "9670f black = whole eye, left out) · transition days left out as in the folder name "
+                       f"({cfd.name}) · % change from the mouse's Baseline mean (days "
+                       f"{' and '.join(str(d) for d in (3, 4, 5) if not re.search(r'excl(?:[0-9]+-)*' + str(d) + r'(?:-|$)', cfd.name))})")
     figs = DAYS_DIR / f"day{N}" / "figs"
     two_up(prs, figs / "09_pr_breakpoint.png", figs / "02_cumulative_licks_rewards.png",
            f"Basic plots 5 · today (day {N}): PR over the session and cumulative licks / rewards",
            "Requirement completed over time and the breakpoint per mouse (top); cumulative licks and rewards (bottom) · "
-           "first 15 min 10 s", stacked=True)
+           "first 15 min 10 s" + (" · Passive replay sessions: the lick line = mouth contacts on the intraoral spout, not "
+                                  "licks" if ((PTb.day == N) & (PTb.task == "PASSIVE")).any() else ""), stacked=True)
     two_up(prs, figs / "05_peri_reward_licking.png", figs / "11_peri_reward_pupil.png",
            f"Basic plots 6 · today (day {N}): licking and pupil around reward",
-           "Mean ± SEM over rewards · pupil: 9669m black and 9670f black are the WHOLE EYE (eye damage), not the pupil")
+           "Mean ± SEM over rewards · pupil: 9669m black and 9670f black are the WHOLE EYE (eye damage), not the pupil" +
+           (" · Passive replay sessions: contacts, not licks" if ((PTb.day == N) & (PTb.task == "PASSIVE")).any() else ""))
 
     # ---- 14 what to do better next
     block("what to do better next")
@@ -1085,7 +1131,8 @@ def build(days, out: Path, pupil_days=None):
     # ~1500 characters (shown at 9.5 pt or more) and the slide repeats as "(2/2)", ... when a column needs more pages
     cols = []
     for who, title, col in (("you", "At the rig (you)", NAVY), ("Claude", "In the routine (Claude)", "557A9E")):
-        items = list(NS[(NS.who == who) & (NS.status != "done")].itertuples()) if len(NS) else []
+        items = (list(NS[(NS.who == who) & ~NS.status.astype(str).str.strip().str.lower().str.startswith("done")]
+                      .itertuples()) if len(NS) else [])                 # 'done (note)' is done too (review 11-24)
         pages, cur, n = [], [], 0
         for r in items:
             c = len(str(r.what)) + len(str(r.why))

@@ -120,10 +120,12 @@ SET_SHORT = {"Active · natural reward": "Active·natural", "Passive · natural 
              "Passive · morphine yoked (delivered + 1)": "Passive yoked"}
 
 
-def mouse_day(path: Path) -> pd.DataFrame:
+def mouse_day(path: Path, manifest: Path | None = None) -> pd.DataFrame:
     import cohort_plots as CP          # the validated per-session reader (previous cohort deck numbers reproduced)
     S = CP.read_sessions(path)
-    D, _, _ = CP.mouse_day_table(S, None)
+    # groups from the manifest when given (review 2026-11-24: before the first replay day every mouse read 'Active')
+    man = pd.read_csv(manifest) if manifest is not None and Path(manifest).exists() else None
+    D, _, _ = CP.mouse_day_table(S, man)
     keep = ["cohort", "mouse_key", "day_index", "paradigm", "is_passive_session", "group", "RequirementLast", "rew_n",
             "minutes", "pupil_mean_px", "pupil_coverage", "pupil_reward_resp_px", "Immersion_Latency_s",
             "TST_Pct_Non_moving", "HOT_Pct_Non_moving", "STRAUB_Pct_Non_moving"]
@@ -564,17 +566,23 @@ def found_text(R: pd.DataFrame, coh: str, max_items: int = 3) -> str:
 
 def robust_text(R: pd.DataFrame, coh: str, max_items: int = 4) -> str:
     """how many p < 0.05 results of day set 'all' stay p < 0.05 in every day set - counted only where some set really
-    leaves sessions out (assay / Straub days are in every set)"""
-    A = R[(R.cohort == coh) & shown(R)]
+    leaves sessions out (assay / Straub days are in every set). Every set's row counts, also where a 'Both groups' row
+    holds one group only or a group has no session in that set (review 2026-11-24: shown() used to drop those sets,
+    so 'TI both·mor', which 6 sets change from 28 to 16 Active-only sessions, was called 'not touched')."""
+    A = R[(R.cohort == coh) & R.session_group.isin(MAIN)]
     stay, fall, fixed = [], [], []
     for r in _items(R, coh):
         o = A[(A.session_group == r.session_group) & (A.measure == r.measure)]
         lab = f"{SHORT[r.measure]} {SET_TINY[r.session_group]}"
-        if o.days.nunique() == 1 and o.n_sessions.nunique() == 1:
+        if (o.days.nunique(dropna=False) == 1 and o.n_sessions.nunique() == 1
+                and o.groups_in.nunique(dropna=False) == 1):
             fixed.append(lab)
             continue
         pk = "mouse_p" if np.isfinite(r.mouse_p) and r.mouse_p < 0.05 else "sameday_p"
-        (stay if bool((o[pk] < 0.05).all()) else fall).append(lab)
+        ok = o[pk] < 0.05
+        if r.session_group.startswith("Both"):           # a set that leaves one group out does not re-test it (11-24)
+            ok = ok & o.groups_in.eq("Active+Passive")
+        (stay if bool(ok.all()) else fall).append(lab)
     if not (stay or fall or fixed):
         return "no p < 0.05 result in 'all'"
     t = f"{len(stay)} of {len(stay) + len(fall)} testable stay p < 0.05 in all 8 sets"
@@ -695,11 +703,13 @@ def dayset_figure(R: pd.DataFrame, out_png: Path, title: str):
     import matplotlib.pyplot as plt
     HM = [("Active · natural reward", "A·nat"), ("Passive · natural reward", "P·nat"),
           ("Both groups · natural reward", "both·nat"), ("Active · morphine", "A·mor"),
-          ("Passive · morphine (own PR)", "P own·mor"), ("Passive · morphine yoked (delivered + 1)", "P yoked")]
+          ("Passive · morphine (own PR)", "P own·mor"), ("Both groups · morphine (own PR)", "both·mor"),
+          ("Passive · morphine yoked (delivered + 1)", "P yoked")]          # both·mor added 2026-11-24 (review)
     sets = day_sets()
     cohorts = [c for c in ("current", "previous") if c in set(R.cohort)]
     st_ = [("mouse_rho", "mouse_p", "mouse ρ"), ("sameday_r", "sameday_p", "same-day r")]
-    fig, axes = plt.subplots(1, len(st_) * len(cohorts), figsize=(6.4 * len(st_) * len(cohorts), 12.6), squeeze=False)
+    fig, axes = plt.subplots(1, len(st_) * len(cohorts), figsize=(6.4 * len(st_) * len(cohorts), 12.6),   # same height with 7 rows (wider on the slide)
+                             squeeze=False)
     cmap = plt.get_cmap("RdBu_r").copy()
     cmap.set_bad("#eceff2")
     short_set = {"all": "all", "no_first_day": "no 1st day", "no_first_day_17": "no 1st day +17",
@@ -713,6 +723,7 @@ def dayset_figure(R: pd.DataFrame, out_png: Path, title: str):
             V = np.full((len(rows), len(sets)), np.nan)
             Pm = np.full_like(V, np.nan)
             Nn = np.full_like(V, np.nan)
+            one = np.zeros(V.shape, dtype=bool)      # a 'Both groups' cell that holds one group only (review 11-24)
             same = []
             for a, (key, g, _) in enumerate(rows):
                 o = R[(R.cohort == coh) & (R.session_group == g) & (R.measure == key)]
@@ -720,10 +731,14 @@ def dayset_figure(R: pd.DataFrame, out_png: Path, title: str):
                 for b, (sn, _) in enumerate(sets):
                     r = o[o.day_set == sn]
                     if len(r):
+                        if (g.startswith("Both") and str(r.groups_in.iloc[0]) != "Active+Passive"
+                                and pd.to_numeric(r.n_sessions.iloc[0], errors="coerce") > 0):
+                            one[a, b] = True             # the set leaves one group out: the cell would repeat it
+                            continue
                         V[a, b], Pm[a, b] = r[vk].iloc[0], r[pk].iloc[0]
                         Nn[a, b] = r["n_mice" if vk == "mouse_rho" else "sameday_n"].iloc[0]
             keep = ~np.all(np.isnan(V), axis=1)
-            V, Pm, Nn = V[keep], Pm[keep], Nn[keep]
+            V, Pm, Nn, one = V[keep], Pm[keep], Nn[keep], one[keep]
             labels = [lab for (k_, g_, lab), kk in zip(rows, keep) if kk]
             same = [s for s, kk in zip(same, keep) if kk]
             im = ax.imshow(np.ma.masked_invalid(V), cmap=cmap, vmin=-1, vmax=1, aspect="auto")
@@ -733,6 +748,8 @@ def dayset_figure(R: pd.DataFrame, out_png: Path, title: str):
                         star = "*" if np.isfinite(Pm[a, b]) and Pm[a, b] < 0.05 else ""
                         ax.text(b, a, f"{V[a, b]:+.2f}{star}", ha="center", va="center", fontsize=8.0,
                                 color="white" if abs(V[a, b]) > 0.6 else "#1f2933", fontweight="bold" if star else None)
+                    elif one[a, b]:
+                        ax.text(b, a, "1 group", ha="center", va="center", fontsize=6.6, color="#9aa5b1")
                     else:
                         ax.text(b, a, "-", ha="center", va="center", fontsize=8, color="#9aa5b1")
             ax.set_yticks(range(len(labels)))
@@ -756,7 +773,8 @@ def dayset_figure(R: pd.DataFrame, out_png: Path, title: str):
              "sessions for same day, in 'all') · grey label with '=' = no day set changes its days (assay / Straub days)\n"
              "columns = the lab's 8 day sets (tools\\day_sets.csv: all; without days 4,6,11,14 (+17); the previous "
              "cohort's phase medians -4,6,11,14,17, dashboard -3,6,11,14, pupil / TI -4,6,11,14, step10 -3; "
-             "-3,6,11,14,17) · grey cell = too few · red = higher PR with higher value", fontsize=9.5, color="#52606d",
+             "-3,6,11,14,17) · grey cell = too few · '1 group' = the set leaves one group out of a 'both' row · red = "
+             "higher PR with higher value", fontsize=9.5, color="#52606d",
              ha="left", va="top")
     fig.tight_layout(rect=(0, 0, 0.985, 0.935), w_pad=1.2)
     if im is not None:
@@ -818,7 +836,7 @@ def main(argv=None) -> int:
     cur = a.current or newest_current()
     parts, nd = [], 0
     if cur is not None and cur.exists():
-        C = prepare(mouse_day(cur), "current")
+        C = prepare(mouse_day(cur, P / "cohort_manifest.csv"), "current")
         nd = int(C.day.max())
         C = current_straub(C)
         C = current_vs_pr_table(C, nd)

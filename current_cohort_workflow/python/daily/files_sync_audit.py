@@ -131,7 +131,9 @@ def main(argv=None) -> int:
                     f"valve openings {n_rew} vs python reward_cmd {py['rewards']}")
                 passive = "replay" in str(py.get("paradigm", "")).lower() or "passive" in name.lower()
                 if cs.get("licks") is not None and not passive:
-                    n_lk = sum(1 for t in cs["licks"] if w0 <= t <= w1)
+                    # licks only while Python ran, with sync_sessions' pads (start - 0.05 s, end + 0.1 s); review
+                    # 2026-11-24: was the reward window, which runs 2 s past the end
+                    n_lk = sum(1 for t in cs["licks"] if cs["first_cam"] - 0.05 <= t <= cs["first_cam"] + py["dur"] + 0.1)
                     bad = abs(n_lk - py["licks"]) > max(20, 0.5 * max(n_lk, py["licks"]))
                     add(d, c, m, name, "S6 licks", "WARN" if bad else "PASS", f"Saleae lick onsets {n_lk} vs python lick records {py['licks']}")
                 if vids:
