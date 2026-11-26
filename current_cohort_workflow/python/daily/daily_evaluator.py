@@ -38,7 +38,9 @@ C  ANALYSIS
  C3 rewards    Saleae rewards in pr_checks = python rewards
  C4 TI         assays file = TI table = Step 02 Immersion_Latency_s
  C5 straub     straub_dayN.csv auto % = recomputed from the per-frame CSV; one per mouse
- C6 step02     Step 02 rows = video frames (camera pulses without video); isPassive = the log's paradigm
+ C6 step02     Step 02 rows = video frames (camera pulses without video); isPassive = the log's paradigm; a day in
+               tools/step02_window_days.csv (day 13 = 20 min, user 2026-11-26): rows = camera pulses of the first N s
+               and the window marker names the whole table (= all video frames)
 Outputs: analysis\\days\\dayN\\evaluator_dayN.csv / .txt / .png. Exit code 1 if any FAIL.
 usage: python daily_evaluator.py --day N        python daily_evaluator.py --days 1 2 3 ...
 """
@@ -313,6 +315,11 @@ class Ctx:
                     if f.name.startswith("_"):
                         continue
                     self.hash.setdefault(full_hash(f) if f.suffix == ".jsonl" else quick_hash(f), []).append(f)
+        # days whose Step 02 table keeps only the first N s (tools/step02_window.py, added 2026-11-26 for day 13)
+        wf = T / "step02_window_days.csv"
+        W = pd.read_csv(wf, dtype=str, encoding="utf-8-sig").fillna("") if wf.exists() else pd.DataFrame()
+        self.window = {int(r.day): float(r.seconds) for r in W.itertuples() if str(r.approved).strip()} \
+            if len(W) else {}
         lp = T / "local_paths.json"
         L = json.loads(lp.read_text(encoding="utf-8")) if lp.exists() else {}
         self.raw_dirs = [Path(p) for p in L.get("raw_dirs", [])]
@@ -656,9 +663,31 @@ def evaluate_day(day: int, X: Ctx) -> list:
                 f"Step 02 {X.step02_run} read {sdn}" + ("" if ok else f", the check used {table_run}"))
             msg, st = [], "PASS"
             want_rows = vi["frames"] if vi is not None else len(cam)
-            if num(iv.rows) is None or int(num(iv.rows)) != want_rows:
-                msg.append(f"{iv.rows} rows vs {want_rows} {'video frames' if vi is not None else 'camera pulses'}")
+            what = "video frames" if vi is not None else "camera pulses"
+            win = X.window.get(day)
+            if win is not None:
+                # 2026-11-26 (day 13 = 20-min sessions; user: PR = the whole session, every other measure = the first
+                # 15 min 10 s): step02_window.py keeps the rows with CamTime_rel_s < win in a listed day's Step 02
+                # table -> expected rows = camera pulses within win s of the first pulse (pulse k = row k); the marker
+                # next to the table must name the whole table = all video frames
+                full_rows = want_rows
+                want_rows = int(np.sum((cam - cam[0]) < win)) if len(cam) else want_rows
+                what = f"camera pulses of the first {win:g} s (whole table {full_rows} {what})"
+                try:
+                    M = json.loads((Path(iv.session_dir) / "combined_pupil_digital.window.json").read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    M = None
+                if M is None:
+                    msg.append("no window marker next to the Step 02 table")
+                    st = "FAIL"
+                elif int(num(M.get("rows_whole")) or -1) != full_rows:
+                    msg.append(f"window marker: whole table {M.get('rows_whole')} rows vs {full_rows} {what}")
+                    st = "FAIL"
+            if num(iv.rows) is None or abs(int(num(iv.rows)) - want_rows) > (1 if win is not None else 0):
+                msg.append(f"{iv.rows} rows vs {want_rows} {what}")
                 st = "FAIL"
+            elif win is not None:
+                msg.append(f"{iv.rows} rows = {what}")
             if str(iv.isPassive).strip() not in ("1" if replay else "0",):
                 msg.append(f"isPassive {iv.isPassive} but the log is {'a replay' if replay else 'not a replay'}")
                 st = "FAIL"

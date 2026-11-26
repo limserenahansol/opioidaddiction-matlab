@@ -83,10 +83,39 @@ def py_only_counted(day, cage, mouse, session):
     return out
 
 
+WINDOW_FPS = 30.26   # real camera rate (frames = camera pulses), as in pupil_check_examples.py
+
+
+def window_days():
+    """{day: seconds} of tools/step02_window_days.csv (approved rows): days whose analysis uses only the first N s
+    (added 2026-11-26 for day 13 = 20-min sessions; user: PR = the whole session, every other measure = the first
+    15 min 10 s). Missing file = {}."""
+    f = T / "step02_window_days.csv"
+    out = {}
+    if f.exists():
+        for _, r in pd.read_csv(f, dtype=str, encoding="utf-8-sig").fillna("").iterrows():
+            if str(r.get("approved", "")).strip():
+                try:
+                    out[int(r["day"])] = float(r["seconds"])
+                except (KeyError, ValueError):
+                    pass
+    return out
+
+
+WINDOW = window_days()
+
+
+def window_text(d):
+    """'of the session', or 'of the first 15 min 10 s' on a listed window day"""
+    w = WINDOW.get(int(d))
+    return "of the session" if w is None else f"of the first {int(w // 60)} min {int(w % 60)} s"
+
+
 def wholeeye_offeye(d, c, m):
     """(% frames whose eye mask is > 20 px from the eye centre of the surrounding minute, the same % in the worst tenth
     of the session) from the eye model's per-frame output; None without that file. Off-eye masks are the spout,
-    whiskers or fur picked when the damaged eye is closed (review 2026-11-17)."""
+    whiskers or fur picked when the damaged eye is closed (review 2026-11-17). On a day of
+    tools/step02_window_days.csv only the frames of the first N s count (the analysed part; 2026-11-26)."""
     f = P / "analysis" / "wholeeye" / f"day{d}" / c / m / "wholeeye_frames.csv"
     if not f.exists():
         return None
@@ -96,6 +125,9 @@ def wholeeye_offeye(d, c, m):
     med = lambda x: pd.Series(x).rolling(1800, center=True, min_periods=100).median().to_numpy()
     with np.errstate(invalid="ignore"):
         off = fnd & (np.hypot(cx - med(cx), cy - med(cy)) > 20)
+    w = WINDOW.get(int(d))
+    if w is not None:
+        off = off[:int(round(w * WINDOW_FPS))]
     return 100 * off.mean(), 100 * max(x.mean() for x in np.array_split(off, 10))
 
 
@@ -314,12 +346,12 @@ def one_session(s, d, c, m, q, pr, keys):
             if dec:
                 F.append((1, "off_eye_kept", f"{oe[0]:.0f}% off, worst tenth {oe[1]:.0f}%",
                           f"whole eye: {oe[0]:.0f}% of frames have the mask off the eye (spout/whiskers/fur), "
-                          f"{oe[1]:.0f}% in the worst tenth of the session - your decision: {dec}"))
+                          f"{oe[1]:.0f}% in the worst tenth {window_text(d)} - your decision: {dec}"))
                 flags.append("off eye kept")
             elif oe[1] > 25:
                 F.append((2, "off_eye", f"{oe[0]:.0f}% off, worst tenth {oe[1]:.0f}%",
                           f"whole eye: {oe[0]:.0f}% of frames have the mask off the eye (spout/whiskers/fur), "
-                             f"{oe[1]:.0f}% in the worst tenth of the session - needs a look"))
+                             f"{oe[1]:.0f}% in the worst tenth {window_text(d)} - needs a look"))
                 flags.append("OFF EYE")
     elif g == "noisy":
         why = str(q.iloc[0].reason).replace("new package: ", "") if pd.notna(q.iloc[0].reason) else ""
