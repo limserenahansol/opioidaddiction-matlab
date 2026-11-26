@@ -993,6 +993,14 @@ def main(argv=None):
             if subprocess.run([sys.executable, "-B", str(TOOLS / "straub_day.py"), "--day", str(dn), "--apply"]).returncode:
                 print("  !! straub_day.py could not finish (see above)")
         update_step02_base(dn)
+        # STEP 02 WINDOW (added 2026-11-26, day 13 = 20-min sessions; user: "PR you can use whole session whole 20min
+        # or whole 15min but for the others you can use only first 15min 10s"): the Step 02 tables of the days listed
+        # in tools/step02_window_days.csv keep only the first 910 s (whole table kept in step02_base/_full_tables);
+        # the task log stays whole, so the ORIGINAL Step 02's RequirementLast is the whole-session PR
+        print("\n=== STEP 02 WINDOW (listed days only: tools\\step02_window_days.csv) ===")
+        if subprocess.run([sys.executable, "-B", str(TOOLS / "step02_window.py"), "--project", str(PROJECT),
+                           "--apply"]).returncode:
+            print("  !! step02_window.py reported a problem (see above)")
         # Step 02 + the previous cohort's figures every day since 2026-11-17 (the routine PPT shows them as the basic
         # plots); --no-longitudinal skips it
         if not args.no_longitudinal:

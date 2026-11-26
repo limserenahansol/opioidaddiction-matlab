@@ -663,7 +663,8 @@ def build(project: Path, days, out: Path, with_appendix: bool = True):
                       f"range {rr.min():.0f}–{rr.max():.0f} · n = {len(rr)} · reference only", "557A9E",
                       "Card previous cohort")
     add_footer(s1, "Licks = Saleae lick onsets (Python logs a few more, see slide 4); rewards = valve openings "
-                   "(= Python reward commands); PR = last requirement reached in 910 s (start 1, +1). Previous cohort "
+                   "(= Python reward commands); PR = last requirement reached in the whole session (start 1, +1; "
+                   "= 910 s on the 15-min days, user 2026-11-26). Previous cohort "
                    f"(0910/0911/6099/6100): first 910 s; training and valve (180 ms) differ. "
                    f"Source: analysis\\session_metrics.csv · made {made}")
 

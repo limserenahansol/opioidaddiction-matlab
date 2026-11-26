@@ -1,0 +1,2 @@
+day,seconds,time_column,approved,reason
+13,910,CamTime_rel_s,2026-11-26 user,"day 13 ran 20 min (1210 s); user 2026-11-26: ""PR you can use whole session whole 20min or whole 15min but for the others you can use only first 15min 10s"" - the task log stays whole (Step 02 RequirementLast = whole-session PR), combined_pupil_digital.csv keeps CamTime_rel_s < 910 s"

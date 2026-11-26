@@ -826,6 +826,11 @@ def pr_numbers(C: dict, r: dict, raw: dict, items: list, plot: dict):
             qq = q[(q["session"].astype(str) == r["session"]) & (q["window"].astype(str) == win)]
             qv = num(qq["pr_breakpoint"].iloc[0]) if len(qq) else None
         r["qa_pr_breakpoint_" + tag] = qv if qv is not None else math.nan
+        if tag == "910s":
+            # 2026-11-26: quick_analysis gives the WHOLE-session PR in the first_15m10s row too (user: PR = the whole
+            # session, every other measure = the first 15 min 10 s), so that row is the full row's value, compared
+            # above; pr_RL_910s (this tool's own first-910-s RL) stays in the table for information only
+            continue
         if qv is not None and finite(r[col]) and qv != r[col]:
             txt = f"quick_analysis pr_breakpoint ({win}) {fg(qv)} vs RL {fg(r[col])} here"
             if tag == "910s" and edge:     # a trial started just after 910 s Python time: the two clocks differ
@@ -1348,7 +1353,8 @@ def write_txt(D: dict, path: Path, G: dict):
               "covered by the camera pulses ('full' = all); video = frames (frames - camera pulses of the session); "
               "Py-only = Python lick with no Saleae lick edge inside the capture ('+N out' = Python licks outside the "
               "capture, not checked); final gap = session end (experiment_end) - last reward_cmd; RL = last 'req' in "
-              "the log (= quick_analysis pr_breakpoint for start 1 +1); first 910 s = Python elapsed < 910 s; "
+              "the log (= quick_analysis pr_breakpoint for start 1 +1; PR = the whole session in every table, user "
+              "2026-11-26); first 910 s = Python elapsed < 910 s, for information; "
               "Theil-Sen slope = time to reward (reward_cmd - trial_start) per extra required lick; a sync FAIL "
               "session's Saleae cells ('?') are not reliable and not checked.",
               "", "Summary: " + korean_summary([D])]

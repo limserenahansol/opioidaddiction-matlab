@@ -180,7 +180,10 @@ def metrics(S: dict, t_max: float) -> dict:
         ttr = ttr[:0]
     m["time_to_reward_median_s"] = float(np.median(ttr)) if len(ttr) else np.nan
     m["time_to_reward_iqr_s"] = float(np.subtract(*np.quantile(ttr, [0.75, 0.25]))) if len(ttr) else np.nan
-    m.update(pr_scores(S, t_max))
+    # PR = the WHOLE session in every window row (user 2026-11-26, day 13 = 20 min: "PR you can use whole session
+    # whole 20min or whole 15min but for the others you can use only first 15min 10s"); days 1-12: the same values
+    # (all 96 sessions checked 2026-11-26), so only sessions longer than 15:10 change
+    m.update(pr_scores(S, 1e9))
     return m
 
 
@@ -373,7 +376,7 @@ def fig_by_day(M, out):
     keys = [("licks_per_min", "licks / min"), ("rewards", "rewards (first 15:10)"),
             ("licks_per_reward", "licks / reward")]
     if m["is_pr"].any():
-        keys.append(("pr_breakpoint", "PR breakpoint (first 15:10, PR days)"))
+        keys.append(("pr_breakpoint", "PR breakpoint (whole session, PR days)"))
     fig, axes = plt.subplots(1, len(keys), figsize=(5 * len(keys), 4.2))
     for ax, (k, t) in zip(axes, keys):
         for mouse, d in m.groupby("mouse"):
