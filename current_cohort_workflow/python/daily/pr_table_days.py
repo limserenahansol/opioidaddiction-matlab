@@ -3,8 +3,9 @@
 pr_table_days.py - one table of every mouse's PR score on every day so far (added 2026-11-18; user: "all days' PR
 score table show me them"). Report only: reads the routine's tables, changes nothing.
 
-  PR (PR days)  pr_RL_full of analysis/days/dayN/pr_checks_dayN.csv = the last ratio requirement = rewards + 1 in a
-                full 910-s session (the previous cohort's Step 02 RequirementLast; Claude chose it on 2026-11-14 to
+  PR (PR days)  pr_RL_full of analysis/days/dayN/pr_checks_dayN.csv = the last ratio requirement = rewards + 1 over
+                the WHOLE session (910 s; day 13 = 1210 s, user 2026-11-26: "PR you can use whole session")
+                (the previous cohort's Step 02 RequirementLast; Claude chose it on 2026-11-14 to
                 match the old pipeline, and the user kept it on 2026-11-19: "네, 그대로". The old Step 10 used max
                 Trial = rewards instead)
   FR days       no PR: the cell shows the ratio (FR3 day 1, FR5 day 2) and the rewards in the first 15 min 10 s

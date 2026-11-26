@@ -360,12 +360,14 @@ def did_found_slide(prs, path: Path, title: str, did: str, found: str):
 def pr_slide(prs, blank, days, foot, Tb):
     """PR score of every mouse on every day so far (added 2026-11-18; user: "all days' PR score table show me them";
     the user's order after an experiment: PR and QC first). Tb = pr_table_days.table(days): PR = pr_RL_full of
-    pr_checks_dayN.csv (last requirement = rewards + 1 in a full 910-s session); FR days = rewards in the first
+    pr_checks_dayN.csv (last requirement = rewards + 1 over the whole session: 910 s; day 13 1210 s, user 2026-11-26);
+    FR days = rewards in the first
     15 min 10 s; days 6-10: a passive mouse replays its active partner's log (no PR of its own; its rewards are
     compared with the partner's); rewards Python = Saleae per session; the previous cohort's PR (first 910 s)."""
     s = prs.slides.add_slide(blank)
     MS.add_title(s, "PR score per mouse and day",
-                 "PR = last ratio requirement = rewards + 1 (full 910-s session; the previous cohort's PR) · FR days: "
+                 "PR = last ratio requirement = rewards + 1 (whole session: 910 s, day 13 1210 s; the previous cohort's "
+                 "PR) · FR days: "
                  "rewards in the first 15 min 10 s · P = passive: R = drops delivered; small line = its partner's R "
                  "and PR")
     tasks = {d: PT.day_type(Tb, d) for d in days}

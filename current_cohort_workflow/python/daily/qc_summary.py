@@ -399,7 +399,9 @@ def main(argv=None):
     V["v"] = (V.valve_median_ms / 100).round() * 100
     vtxt = "; ".join(f"day {d}: " + ", ".join(f"{int(v)} ms x{n}" for v, n in g.v.value_counts().sort_index().items())
                      for d, g in V.groupby("day"))
-    general = ["PR = last ratio requirement (pr_RL_full = rewards + 1 in a full 910-s session), as the previous cohort's PR. "
+    general = ["PR = last ratio requirement (pr_RL_full = rewards + 1 over the WHOLE session: 910 s; day 13 1210 s, user "
+               "2026-11-26), as the previous cohort's PR. R, licks and frames in a cell = the whole recording (a data "
+               "check); the analysis tables use the first 15 min 10 s for every measure except PR. "
                "'(n Py-only)' = licks the task counted that the Saleae lick line did not see.",
                f"valve time per day: {vtxt}"]
     notes = [f"day{r.day} {r.cage} {r.mouse}: {r.notes}" for r in R.itertuples() if str(r.notes) not in ("", "nan")]
