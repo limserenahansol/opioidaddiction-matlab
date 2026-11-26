@@ -130,7 +130,13 @@ def all_days_tables(folder: Path, pat: str) -> list:
     <name>_days1-N_before_<date>_<why>.csv are left out: they are not data, and their names have no N at the end
     (added 2026-11-20: such a backup made the sort below fail with IndexError)."""
     fs = [x for x in folder.glob(pat) if re.search(r"_days\d+-\d+\.csv$", x.name)]
-    return sorted(fs, key=lambda x: int(re.findall(r"(\d+)\.csv$", x.name)[0]))
+
+    def key(x):
+        # 2026-11-26 (independent review): sort by the last day, then by the range, so that with the same last day the
+        # widest table is last = final (a days4-12 view made for the user had become 'final' and hid days 1-3)
+        a, b = map(int, re.search(r"_days(\d+)-(\d+)\.csv$", x.name).groups())
+        return (b, b - a)
+    return sorted(fs, key=key)
 
 
 def build(project: Path) -> pd.DataFrame:

@@ -68,7 +68,8 @@ CAT = {
                 "Needs your decision: count those frames as 'no eye'?", "open"),
     "off_eye_kept": ("Whole eye: when the eye closes, the mask lands on the spout / whiskers / fur",
                      "Your decision 11-18: keep those frames as they are (qc_decisions.csv)", "approved"),
-    "open_issue": (None, "Needs your decision: is the white part eye?", "open"),
+    # 2026-11-26: generic; the slide shows the issue's own 'YOUR DECISION: ...' text when it has one
+    "open_issue": (None, "Needs your decision (see analysis\\days\\qc_open_issues.csv)", "open"),
     "rewards": ("Rewards: Python and Saleae differ", "Needs a look", "open"),
     "frames_open": ("Video frames differ from camera pulses (not fixed)", "Needs a look", "open"),
     "no_video_open": ("No video found", "Needs a look", "open"),
@@ -96,7 +97,8 @@ CAT = {
     "licks_extra": ("Python logged extra licks while the 500-ms valve was open (not counted)",
                     "Tables use the Saleae lick line; 200-ms valve since day 3", "noted"),
     "filename": ("File name without the mouse", "Filed by start time (the only free mouse)", "noted"),
-    "pupil_noisy": ("Pupil noisy: ≥ 10 % of frames out (spout / whiskers / reflections) or wrong spikes",
+    "pupil_noisy": ("Pupil noisy: ≥ 10 % of frames out (spout / whiskers / reflections), wrong spikes, or the "
+                    "circle not on the pupil (e.g. a half-closed eye)",
                     "Checked by eye on the pupil-check pictures; used in the tables, marked noisy", "noted"),
     "pupil_pending": ("Pupil step not run yet for this day (light run right after the experiment)",
                       "Runs next: eye boxes, the pupil package and the whole eye, then the pupil check", "noted"),
@@ -561,7 +563,7 @@ def pupil_check_slides(prs, blank, days, foot):
     C["verdict"] = C.verdict.fillna("").astype(str)
     s = prs.slides.add_slide(blank)
     MS.add_title(s, "Pupil check per session (Claude looked at every picture)",
-                 "ok = on the pupil and < 10 % out · noisy = ≥ 10 % out or wrong spikes")
+                 "ok = on the pupil and < 10 % out · noisy = ≥ 10 % out, wrong spikes, or the circle not on the pupil")
     legend(s, 7.3, 1.0, [(QC_FILL["green"], QC_TEXT["green"], "ok"), (QC_FILL["yellow"], QC_TEXT["yellow"], "noisy"),
                          ("ECECEC", "555555", "no video"), (QC_FILL["red"], QC_TEXT["red"], "not looked at yet")])
     w0 = 1.55
@@ -765,13 +767,17 @@ def build(days, out: Path, pupil_days=None):
     if len(EV):
         c = EV.status.value_counts().to_dict()
         lines.append([("Evaluator: ", {"bold": True}),
-                      (f"{c.get('FAIL', 0)} FAIL · {c.get('WARN', 0)} look · {c.get('PASS', 0)} ok (independent re-read)", {})])
+                      (f"{c.get('FAIL', 0)} FAIL · {c.get('WARN', 0)} look · {c.get('PASS', 0)} ok"
+                       + (f" · {c.get('INFO', 0)} info" if c.get("INFO", 0) else "") + " (independent re-read)", {})])
     box(s, 0.5, 2.8, 6.1, 3.0, f"Today (day {N})", lines, NAVY, "Today box")
     dec = []
     for cat in ("off_eye", "open_issue", "rewards", "frames_open", "no_video_open", "lick_unknown", "check_open",
                 "pupil_open"):
         g = I[(I.cat == cat) & (I.level == "red")]
-        if len(g):
+        if len(g) and cat == "open_issue":      # 2026-11-26: one line per open issue, each with its own title
+            for title, gg in g.groupby("short", sort=False):
+                dec.append([(str(title) + ": ", {"bold": True}), (sess_text(gg, cat), {})])
+        elif len(g):
             prob = CAT[cat][0] or g.short.iloc[0]
             dec.append([(prob + ": ", {"bold": True}), (sess_text(g, cat), {})])
     for r in (EV[EV.status == "FAIL"].head(4).itertuples() if len(EV) else []):
@@ -955,7 +961,10 @@ def build(days, out: Path, pupil_days=None):
             done = off_eye_decisions_text() or done
         if cat == "open_issue":
             for title, gg in g.groupby("short", sort=False):
-                groups.append((st, title, sess_text(gg, cat), done))
+                note = str(gg.note.iloc[0]) if "note" in gg.columns else ""
+                own = ("Needs your decision: " + note.split("YOUR DECISION:", 1)[1].strip()
+                       if "YOUR DECISION:" in note else done)          # 2026-11-26: the issue's own question
+                groups.append((st, title, sess_text(gg, cat), own))
             continue
         groups.append((st, prob, sess_text(g, cat), done))
     groups.sort(key=lambda x: ORDER.index(x[0]))
@@ -1064,7 +1073,8 @@ def build(days, out: Path, pupil_days=None):
         spec = next((v for k, v in patterns.items() if what.startswith(k)), None)
         nfig = ""
         if spec is not None and spec[0].is_dir():
-            nfig = f"{len(list(spec[0].glob(spec[1])))} {spec[1].rsplit('.', 1)[-1]}"
+            nfig = (f"{len([x for x in spec[0].glob(spec[1]) if not x.name.startswith('~$')])} "
+                    f"{spec[1].rsplit('.', 1)[-1]}")          # 2026-11-26: PowerPoint lock files are not decks
         rows.append([(what, "FFFFFF", TEXT, True), (where, "FFFFFF", TEXT, False), (nfig, "FFFFFF", MUTED, False)])
     table(s, 0.5, 1.42, [3.9, 7.33, 1.1], ["What", "Where (inside the project)", "Files"], rows, "Folders table",
           size=10 if len(rows) <= 13 else 9.5)

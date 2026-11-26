@@ -319,9 +319,9 @@ def count_line(s, o):
 def _count(s, o, pct, n):
     if s["kind"] == "eye":
         return (f"out {pct(o['out_n'])} of {n:,} frames  =  no eye found {pct(o['notfound_n'])}  +  off eye (spout / "
-                f"whiskers / fur) {pct(o['offeye_n'])}  ·  worst minute {o['worst_minute_out_pct']:.0f} %")
+                f"whiskers / fur) {pct(o['offeye_n'])}  ·  worst minute {o['worst_minute_out_pct']:g} %")
     return (f"out {pct(o['out_n'])} of {n:,} frames  =  held {pct(o['held_n'])}  +  jumps {pct(o['jump_n'])}"
-            f"  +  odd size {pct(o['odd_n'])}  ·  worst minute {o['worst_minute_out_pct']:.0f} %")
+            f"  +  odd size {pct(o['odd_n'])}  ·  worst minute {o['worst_minute_out_pct']:g} %")
 
 
 def off_eye_decision(day, cage, mouse):
