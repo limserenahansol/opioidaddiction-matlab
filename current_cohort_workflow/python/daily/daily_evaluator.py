@@ -643,13 +643,18 @@ def evaluate_day(day: int, X: Ctx) -> list:
                 add("B3 pupil", cage, mouse, st, "; ".join(msg) if msg else
                     f"{pcr.source.split(' (')[0]}: out {out:.2f} %, median {med:.1f} px, {n} frames = check")
             vd, note = X.verdict.get((day, cage, mouse), ("", ""))
-            po = num(pcr.out_pct) or 0.0
+            po, wtxt = num(pcr.out_pct) or 0.0, ""
+            p910 = num(getattr(pcr, "out_first910s_pct", None))
+            if X.window.get(day) == 910.0 and p910 is not None:
+                # 2026-11-26 (day 13 = 20 min): the verdict is judged on the analysed part, the first 15 min 10 s
+                # (pupil_check_examples' out_first910s_pct), as every other measure of a window day
+                po, wtxt = p910, " in the first 15:10"
             if not vd or vd.upper() == "LOOK":
                 add("B4 verdict", cage, mouse, "WARN", "no verdict written yet (pupil_check_verdicts.csv)")
             elif po >= NOISY_PCT and vd.lower() == "ok" and not re.search(r"decision|kept|user|approved", note, re.I):
-                add("B4 verdict", cage, mouse, "WARN", f"out {po:.1f} % but verdict 'ok' without a decision note")
+                add("B4 verdict", cage, mouse, "WARN", f"out {po:.1f} %{wtxt} but verdict 'ok' without a decision note")
             else:
-                add("B4 verdict", cage, mouse, "PASS" if vd.lower() == "ok" else "INFO", f"{vd} (out {po:.2f} %)")
+                add("B4 verdict", cage, mouse, "PASS" if vd.lower() == "ok" else "INFO", f"{vd} (out {po:.2f} %{wtxt})")
         # B5 / C6 (Step 02)
         iv = X.inv.get((day, cage, mouse))
         if not in_step02:
