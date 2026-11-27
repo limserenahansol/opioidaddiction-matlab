@@ -62,7 +62,28 @@ GCOL = {"Active": "#c0392b", "Passive": "#2c6fbb"}
 BOUT_GAP_S = 1.0          # bout = licks separated by < 1 s (analyze_passive_active_dashboard_dec2)
 COLS = ["mouse_key", "day_index", "session_idx", "Session_Paradigm", "isPassive", "RequirementLast",
         "Immersion_Latency_s", "CamTime_rel_s", "Lick_TTL", "Injector_TTL", "Trial", "TrialRequirement", "Diameter_px",
-        "TST_Pct_Non_moving", "HOT_Pct_Non_moving", "STRAUB_Pct_Non_moving", "cohort"]
+        "TST_Pct_Non_moving", "HOT_Pct_Non_moving", "STRAUB_Pct_Non_moving", "cohort", "session_dir"]
+
+
+def whole_minutes(session_dir) -> float | None:
+    """Minutes of the WHOLE session when its Step 02 table was cut to a window (tools/step02_window.py, added
+    2026-11-26 for day 13 = 20-min sessions: the table keeps the first 910 s, RequirementLast is the whole-session PR):
+    the last CamTime_rel_s of the whole table named in combined_pupil_digital.window.json. None without a marker
+    (every other session, the previous cohort), so those keep the minutes of their own table."""
+    import json
+    try:
+        mk = Path(str(session_dir)) / "combined_pupil_digital.window.json"
+        if not mk.exists():
+            return None
+        W = Path(json.loads(mk.read_text(encoding="utf-8"))["whole_table"])
+        head = W.open(encoding="utf-8-sig").readline().strip().split(",")
+        k = head.index("CamTime_rel_s")
+        with W.open("rb") as f:                      # the last line of the whole table
+            f.seek(max(0, W.stat().st_size - 4096))
+            last = [x for x in f.read().decode("utf-8", "replace").splitlines() if x.strip()][-1]
+        return float(last.split(",")[k]) / 60
+    except (OSError, ValueError, KeyError, IndexError):
+        return None
 
 
 def phase_of(d):
@@ -90,7 +111,8 @@ def read_sessions(path: Path):
         for k, g in ch.groupby(["cohort", "mouse_key", "day_index", "session_idx"], sort=False):
             parts.setdefault(k, []).append(g[ARR].to_numpy(np.float32))       # only the per-frame numbers are kept
             m = g[ONE].max()
-            c0 = const.setdefault(k, dict(paradigm=str(g.Session_Paradigm.iloc[0]), **{c: np.nan for c in ONE}))
+            c0 = const.setdefault(k, dict(paradigm=str(g.Session_Paradigm.iloc[0]), session_dir=str(g.session_dir.iloc[0]),
+                                          **{c: np.nan for c in ONE}))
             for c in ONE:
                 if np.isfinite(m[c]):
                     c0[c] = m[c] if not np.isfinite(c0[c]) else max(c0[c], m[c])
@@ -100,7 +122,8 @@ def read_sessions(path: Path):
         out[k] = dict(t=A[:, 0], lick=np.nan_to_num(A[:, 1]) > 0.5, rew=np.nan_to_num(A[:, 2]) > 0.5, trial=A[:, 3],
                       req=A[:, 4], pupil=A[:, 5], paradigm=c0["paradigm"], passive=c0["isPassive"],
                       req_last=c0["RequirementLast"], ti=c0["Immersion_Latency_s"], tst=c0["TST_Pct_Non_moving"],
-                      hot=c0["HOT_Pct_Non_moving"], straub=c0["STRAUB_Pct_Non_moving"])
+                      hot=c0["HOT_Pct_Non_moving"], straub=c0["STRAUB_Pct_Non_moving"],
+                      whole_min=whole_minutes(c0.get("session_dir", "")))
     return out
 
 
@@ -150,7 +173,10 @@ def mouse_day_table(S, manifest):
                          is_passive_session=s["passive"], RequirementLast=s["req_last"], minutes=mins,
                          lick_n=len(lt), lick_freq_per_min=len(lt) / mins if mins > 0 else np.nan,
                          rew_n=len(rt), rew_freq_per_min=len(rt) / mins if mins > 0 else np.nan,
-                         req_speed_per_min=s["req_last"] / mins if mins > 0 else np.nan,
+                         # PR speed = the whole-session PR over the WHOLE session's minutes; a window day's table
+                         # holds only the first 910 s, so its whole length comes from the window marker (2026-11-26)
+                         req_speed_per_min=(s["req_last"] / s["whole_min"] if s.get("whole_min") else
+                                            s["req_last"] / mins if mins > 0 else np.nan),
                          bout_n=nb, bout_totalDur_s=bdur, pupil_mean_px=np.nanmean(p) if ok.any() else np.nan,
                          pupil_coverage=ok.mean(), pupil_reward_resp_px=resp, Immersion_Latency_s=s["ti"],
                          TST_Pct_Non_moving=s["tst"], HOT_Pct_Non_moving=s["hot"], STRAUB_Pct_Non_moving=s["straub"]))

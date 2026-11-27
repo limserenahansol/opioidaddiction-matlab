@@ -176,8 +176,12 @@ def pupil_check_out():
         except (OSError, ValueError):
             continue
         for r in X.itertuples():
-            if pd.notna(getattr(r, "out_pct", np.nan)):
-                out[(int(r.day), str(r.cage), str(r.mouse))] = float(r.out_pct)
+            v = getattr(r, "out_pct", np.nan)
+            # a window day (day 13 = 20 min, 2026-11-26): the % of the analysed part, the first 15:10, as the verdicts
+            if WINDOW.get(int(r.day)) == 910.0 and pd.notna(getattr(r, "out_first910s_pct", np.nan)):
+                v = r.out_first910s_pct
+            if pd.notna(v):
+                out[(int(r.day), str(r.cage), str(r.mouse))] = float(v)
     return out
 
 

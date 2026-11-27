@@ -104,11 +104,28 @@ def sessions(area: Path):
                 yield int(m.group(1)), c.name, mo.name, mo
 
 
+def known_cages() -> dict:
+    """{'9670': '9670f', ...}: the cohort's cage names (with the sex letter) from the project's python/day*/ folders"""
+    out = {}
+    for d in (P / "python").glob("day*/*") if (P / "python").exists() else []:
+        mm = re.fullmatch(r"(\d{4})([mf])", d.name.lower())
+        if d.is_dir() and mm:
+            out.setdefault(mm.group(1), d.name.lower())
+    return out
+
+
+CAGES = known_cages()
+
+
 def from_name(stem: str):
     """(cage, mouse, day) from a session name such as 9670fblack_prday4 or 9669mgreen1__fr3day1"""
     m, d = NAME_RE.match(stem), re.search(r"day(\d+)", stem, re.I)
     if not m:   # 2026-11-19 (user): cage and colour anywhere in the name, e.g. passive_9670fblack_day6
         m = re.search(r"(?<!\d)(\d{4}[mf]).*?(black|white|green\d)", stem, re.I)
+    if not m:   # 2026-11-26 (review): no sex letter, e.g. 9670blackHOTprday13 / 9669green1HOTprday13 -> the cage name
+        m2 = re.search(r"(?<!\d)(\d{4})[\s_-]*(black|white|green\d)", stem, re.I)
+        if m2 and m2.group(1) in CAGES:
+            return (CAGES[m2.group(1)], m2.group(2).lower()), (int(d.group(1)) if d else "")
     return (m.group(1).lower(), m.group(2).lower()) if m else ("", ""), (int(d.group(1)) if d else "")
 
 
@@ -217,10 +234,20 @@ def build(project: Path) -> pd.DataFrame:
     base = project / "step02_base"
     for day, cage, mouse, f in sessions(base):
         for t in sorted(f.glob("concat_out_*/combined_pupil_digital.csv")):
+            mk = t.with_name("combined_pupil_digital.window.json")     # 2026-11-26: a window day's cut (day 13)
             X.add(t, "step02_base_input", day, cage, mouse, sname(day, cage, mouse), "yes",
-                  "copy that the original Step 02 reads (" + option_of(t.parent.name) + ")")
+                  "copy that the original Step 02 reads (" + option_of(t.parent.name) + ")"
+                  + ("; cut to the first 910 s by step02_window.py (the whole table: step02_base/_full_tables)"
+                     if mk.exists() else ""))
+            if mk.exists():
+                X.add(mk, "step02_window_marker", day, cage, mouse, sname(day, cage, mouse), "yes",
+                      "window of the cut: rows kept / whole, SHA-1 of the whole and the cut table")
         for g in sorted(f.glob("*.jsonl")):
             X.add(g, "step02_base_log", day, cage, mouse, g.stem, "yes", "task log copy that Step 02 reads")
+    for day, cage, mouse, f in sessions(base / "_full_tables"):    # 2026-11-26: the whole tables of window days
+        for t in sorted(f.glob("concat_out_*/combined_pupil_digital.csv")):
+            X.add(t, "step02_whole_table", day, cage, mouse, sname(day, cage, mouse), "no",
+                  "the whole table before the window cut (kept; Step 02 does not read it)")
     runs = sorted((base / "longitudinal_outputs").glob("run_*"))
     for r in runs:
         last = r == runs[-1]

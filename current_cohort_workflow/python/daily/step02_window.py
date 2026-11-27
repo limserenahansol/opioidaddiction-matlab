@@ -127,7 +127,22 @@ def main(argv=None) -> int:
                 probs.append(f"{key}: not cut ({' '.join(str(e).split())})")
                 continue
             if first_drop is None:
-                print(f"    {key}: all {n_all} rows are before {D['seconds']:g} s - nothing to cut")
+                # 2026-11-26 (review): a table already shorter than the window (e.g. an early stop) gets a marker
+                # too, so the evaluator's C6 sees that it was checked (rows kept = rows whole; the table is untouched)
+                print(f"    {key}: all {n_all} rows are before {D['seconds']:g} s - nothing to cut"
+                      + ("" if a.apply else " (would write the marker)"))
+                if a.apply:
+                    try:
+                        sh = sha1(t)
+                        M = dict(day=D["day"], cage=cage, mouse=mouse, concat_out=conc, time_column=D["col"],
+                                 seconds=D["seconds"], rows_whole=n_all, rows_kept=n_all, last_kept_s=last,
+                                 first_dropped_s=None, whole_table=str(t), whole_size=t.stat().st_size, whole_sha1=sh,
+                                 cut_size=t.stat().st_size, cut_sha1=sh, approved=D["approved"], reason=D["reason"],
+                                 note="nothing to cut: the whole table is shorter than the window",
+                                 when=datetime.now().isoformat(timespec="seconds"), tool="tools/step02_window.py")
+                        mk.write_text(json.dumps(M, indent=1), encoding="utf-8")
+                    except OSError as e:
+                        probs.append(f"{key}: marker not written ({e})")
                 continue
             full = base / "_full_tables" / f"day{D['day']}" / cage / mouse / conc / t.name
             msg = (f"{n_all} -> {len(kept)} rows (last kept {D['col']} {last:.3f} s, first dropped {first_drop:.3f} s)"
@@ -135,26 +150,33 @@ def main(argv=None) -> int:
             if not a.apply:
                 print(f"    {key}: would cut {msg}; the whole table -> {full.relative_to(project).as_posix()}")
                 continue
-            whole_sha, whole_size = sha1(t), t.stat().st_size
-            if full.exists():
-                if sha1(full) != whole_sha:
-                    probs.append(f"{key}: {full} exists and differs from this table - NOT cut, look by hand")
-                    continue
-            else:
-                full.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(t, full)
-                if sha1(full) != whole_sha:
-                    probs.append(f"{key}: the copy of the whole table did not match - NOT cut")
-                    continue
-            tmp = t.with_name(t.name + ".cut_tmp")
-            tmp.write_bytes(head + b"".join(kept))
-            tmp.replace(t)
-            M = dict(day=D["day"], cage=cage, mouse=mouse, concat_out=conc, time_column=D["col"], seconds=D["seconds"],
-                     rows_whole=n_all, rows_kept=len(kept), last_kept_s=last, first_dropped_s=first_drop,
-                     whole_table=str(full), whole_size=whole_size, whole_sha1=whole_sha, cut_size=t.stat().st_size,
-                     cut_sha1=sha1(t), approved=D["approved"], reason=D["reason"],
-                     when=datetime.now().isoformat(timespec="seconds"), tool="tools/step02_window.py")
-            mk.write_text(json.dumps(M, indent=1), encoding="utf-8")
+            # 2026-11-26 (review): a file held open elsewhere (viewer, Excel, MATLAB, virus scan) must not stop the
+            # other tables -> report it and go on (the table stays whole; the next run cuts it)
+            try:
+                whole_sha, whole_size = sha1(t), t.stat().st_size
+                if full.exists():
+                    if sha1(full) != whole_sha:
+                        probs.append(f"{key}: {full} exists and differs from this table - NOT cut, look by hand")
+                        continue
+                else:
+                    full.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(t, full)
+                    if sha1(full) != whole_sha:
+                        probs.append(f"{key}: the copy of the whole table did not match - NOT cut")
+                        continue
+                tmp = t.with_name(t.name + ".cut_tmp")
+                tmp.write_bytes(head + b"".join(kept))
+                tmp.replace(t)
+                M = dict(day=D["day"], cage=cage, mouse=mouse, concat_out=conc, time_column=D["col"],
+                         seconds=D["seconds"], rows_whole=n_all, rows_kept=len(kept), last_kept_s=last,
+                         first_dropped_s=first_drop, whole_table=str(full), whole_size=whole_size, whole_sha1=whole_sha,
+                         cut_size=t.stat().st_size, cut_sha1=sha1(t), approved=D["approved"], reason=D["reason"],
+                         when=datetime.now().isoformat(timespec="seconds"), tool="tools/step02_window.py")
+                mk.write_text(json.dumps(M, indent=1), encoding="utf-8")
+            except OSError as e:
+                probs.append(f"{key}: NOT cut ({' '.join(str(e).split())}) - Step 02 would read the whole table; "
+                             "close the program that holds it and run again")
+                continue
             log_rows.append([M["when"], D["day"], cage, mouse, conc, D["col"], D["seconds"], n_all, len(kept),
                              last, first_drop, str(full)])
             print(f"    {key}: cut {msg}; the whole table is kept in {full.relative_to(project).as_posix()}")

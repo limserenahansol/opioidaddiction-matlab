@@ -227,6 +227,39 @@ def label(S):
     return f"{S['mouse']} d{S['day']}" if S["day"] == S["day"] else S["session"]
 
 
+def window_days():
+    """{day: seconds} of tools/step02_window_days.csv (approved rows): days whose non-PR measures use only the first
+    N s (added 2026-11-26 for day 13 = 20-min sessions; user: PR = the whole session, every other measure = the first
+    15 min 10 s). Missing file = {}."""
+    f = Path(__file__).resolve().parent / "step02_window_days.csv"
+    out = {}
+    if f.exists():
+        for _, r in pd.read_csv(f, dtype=str, encoding="utf-8-sig").fillna("").iterrows():
+            if str(r.get("approved", "")).strip():
+                try:
+                    out[int(r["day"])] = float(r["seconds"])
+                except (KeyError, ValueError):
+                    pass
+    return out
+
+
+WINDOW_DAYS = window_days()
+
+
+def t_cut(S) -> float:
+    """end of the analysed part of a session: the window of a listed day (day 13: the first 910 s), else inf (whole)"""
+    try:
+        return WINDOW_DAYS.get(int(S["day"]), np.inf)
+    except (TypeError, ValueError):
+        return np.inf
+
+
+def window_suffix(SS) -> str:
+    """' (first 15 min 10 s)' when any session of the picture is on a window day, else ''"""
+    w = [t_cut(S) for S in SS if np.isfinite(t_cut(S))]
+    return f" (first {int(w[0] // 60)} min {int(w[0] % 60)} s)" if w else ""
+
+
 def fig_rasters(SS, out):
     fig, axes = plt.subplots(len(SS), 1, figsize=(14, 1.6 * len(SS) + 0.8), sharex=True, squeeze=False)
     for ax, S in zip(axes[:, 0], SS):
@@ -297,14 +330,16 @@ def fig_ili(SS, out):
     bins = np.logspace(np.log10(0.02), np.log10(60), 70)
     for S in SS:
         col = mcol(S["mouse"])
-        ili = np.diff(np.sort(S["licks"]["t"].to_numpy()))
+        lt = S["licks"]["t"].to_numpy()
+        ili = np.diff(np.sort(lt[lt < t_cut(S)]))       # window day (2026-11-26): the first 15:10 only
         if len(ili):
             ax.hist(ili, bins=bins, histtype="step", density=True, color=col, lw=1.5, label=f"{label(S)} (n={len(ili)})")
     ax.axvline(BOUT_WITHIN_IEI, color="k", ls=":", lw=1); ax.axvline(BOUT_GAP_IEI, color="k", ls="--", lw=1)
     ax.axvspan(0.02, 0.08, color="r", alpha=0.07)
     ax.text(0.022, ax.get_ylim()[1] * 0.92, "< 80 ms: likely\ndouble contacts", fontsize=8, color="r", va="top")
     ax.set_xscale("log"); ax.set_xlabel("inter-lick interval (s)   dotted 0.25 s = in-bout, dashed 0.5 s = bout end")
-    ax.set_ylabel("density"); ax.set_title("inter-lick interval distribution"); ax.legend(fontsize=8); ax.grid(alpha=0.3)
+    ax.set_ylabel("density"); ax.set_title("inter-lick interval distribution" + window_suffix(SS)); ax.legend(fontsize=8)
+    ax.grid(alpha=0.3)
     fig.tight_layout(); fig.savefig(out / "04_inter_lick_interval.png", dpi=130); plt.close(fig)
 
 
@@ -315,8 +350,11 @@ def fig_psth(SS, out):
     rows = []
     for S in SS:
         col = mcol(S["mouse"])
+        tc = t_cut(S)                                   # window day (2026-11-26): licks and rewards of the first 15:10
         lt = np.sort(S["licks"]["t"].to_numpy())
+        lt = lt[lt < tc]
         rt = S["valves"][S["valves"]["kind"] == "reward"]["t"].to_numpy()
+        rt = rt[rt < tc]
         if not len(rt):
             continue
         H = np.array([np.histogram(lt - r, edges)[0] for r in rt]) / PSTH_BIN
@@ -330,7 +368,8 @@ def fig_psth(SS, out):
     ax.axvline(0, color="k", lw=1)
     ax.axvspan(0, vopen, color="b", alpha=0.08, label=f"valve open ({vopen*1000:.0f} ms, measured)")
     ax.set_xlabel("time from reward valve opening (s)"); ax.set_ylabel("lick rate (licks/s)")
-    ax.set_title("licking around reward (mean +- SEM over rewards)"); ax.legend(fontsize=8); ax.grid(alpha=0.3)
+    ax.set_title("licking around reward (mean +- SEM over rewards)" + window_suffix(SS)); ax.legend(fontsize=8)
+    ax.grid(alpha=0.3)
     fig.tight_layout(); fig.savefig(out / "05_peri_reward_licking.png", dpi=130); plt.close(fig)
     return pd.concat(rows) if rows else pd.DataFrame()
 
@@ -606,10 +645,12 @@ def fig_pupil(SP, out):
     for S, P in SP:
         col = mcol(S["mouse"])
         tt, dd = P["t_s"].to_numpy(), P["diameter"].to_numpy()
-        ok = np.isfinite(tt) & np.isfinite(dd)
+        tc = t_cut(S)                                   # window day (2026-11-26): pupil and rewards of the first 15:10
+        ok = np.isfinite(tt) & np.isfinite(dd) & (tt < tc)
         tt, dd = tt[ok], dd[ok]
         rows = []
-        for r in S["valves"][S["valves"]["kind"] == "reward"]["t"]:
+        rw = S["valves"][S["valves"]["kind"] == "reward"]["t"]
+        for r in rw[rw < tc]:
             y = np.interp(r + edges, tt, dd, left=np.nan, right=np.nan)
             base = np.nanmean(y[(edges >= -1) & (edges < 0)])
             if np.isfinite(base) and base > 0:
@@ -621,7 +662,8 @@ def fig_pupil(SP, out):
             ax.fill_between(edges, mean - sem, mean + sem, color=col, alpha=0.2, lw=0)
     ax.axvline(0, color="k", lw=1); ax.axhline(0, color="0.5", lw=0.5)
     ax.set_xlabel("time from reward (s)"); ax.set_ylabel("pupil change from -1..0 s baseline (%)")
-    ax.set_title("pupil around reward (mean +- SEM)"); ax.legend(fontsize=8); ax.grid(alpha=0.3)
+    ax.set_title("pupil around reward (mean +- SEM)" + window_suffix([S for S, _ in SP])); ax.legend(fontsize=8)
+    ax.grid(alpha=0.3)
     fig.tight_layout(); fig.savefig(out / "11_peri_reward_pupil.png", dpi=130); plt.close(fig)
 
 
