@@ -246,8 +246,12 @@ def build(project: Path) -> pd.DataFrame:
             X.add(g, "step02_base_log", day, cage, mouse, g.stem, "yes", "task log copy that Step 02 reads")
     for day, cage, mouse, f in sessions(base / "_full_tables"):    # 2026-11-26: the whole tables of window days
         for t in sorted(f.glob("concat_out_*/combined_pupil_digital.csv")):
-            X.add(t, "step02_whole_table", day, cage, mouse, sname(day, cage, mouse), "no",
-                  "the whole table before the window cut (kept; Step 02 does not read it)")
+            # final = yes (2nd check 2026-11-27): the only copy of the whole 20-min session (no choice between files)
+            X.add(t, "step02_whole_table", day, cage, mouse, sname(day, cage, mouse), "yes",
+                  "the whole table before the window cut (the only copy of the whole session; Step 02 does not read it)")
+    tcf = project / "analysis" / "tst" / "tst_checks.csv"     # 2026-11-27: Claude's checks of flagged TST runs
+    if tcf.exists():
+        X.add(tcf, "tst_check", "all", final="yes", note="Claude's check of a TST run with >= 1 % 'not mouse' frames")
     runs = sorted((base / "longitudinal_outputs").glob("run_*"))
     for r in runs:
         last = r == runs[-1]

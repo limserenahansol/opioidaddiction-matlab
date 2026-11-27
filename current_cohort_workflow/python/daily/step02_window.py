@@ -126,6 +126,28 @@ def main(argv=None) -> int:
             except Exception as e:  # noqa: BLE001 - report and go on with the other tables
                 probs.append(f"{key}: not cut ({' '.join(str(e).split())})")
                 continue
+            full = base / "_full_tables" / f"day{D['day']}" / cage / mouse / conc / t.name
+            if first_drop is None and full.exists():
+                # 2026-11-27 (2nd check): a table cut by an earlier run that stopped before its marker was written:
+                # it equals the cut of the whole copy in _full_tables -> write that marker (never treat it as short)
+                try:
+                    fh, fk, f_all, f_last, f_drop = cut_lines(full, D["col"], D["seconds"])
+                    if t.read_bytes() == fh + b"".join(fk) and f_drop is not None:
+                        if a.apply:
+                            M = dict(day=D["day"], cage=cage, mouse=mouse, concat_out=conc, time_column=D["col"],
+                                     seconds=D["seconds"], rows_whole=f_all, rows_kept=len(fk), last_kept_s=f_last,
+                                     first_dropped_s=f_drop, whole_table=str(full), whole_size=full.stat().st_size,
+                                     whole_sha1=sha1(full), cut_size=t.stat().st_size, cut_sha1=sha1(t),
+                                     approved=D["approved"], reason=D["reason"],
+                                     note="marker recovered: the table had been cut before but its marker was missing",
+                                     when=datetime.now().isoformat(timespec="seconds"), tool="tools/step02_window.py")
+                            mk.write_text(json.dumps(M, indent=1), encoding="utf-8")
+                        print(f"    {key}: already cut, marker {'recovered' if a.apply else 'would be recovered'} "
+                              f"({len(fk)} of {f_all} rows; whole table in _full_tables)")
+                        continue
+                except (OSError, ValueError) as e:
+                    probs.append(f"{key}: whole copy in _full_tables could not be compared ({e}) - NOT touched")
+                    continue
             if first_drop is None:
                 # 2026-11-26 (review): a table already shorter than the window (e.g. an early stop) gets a marker
                 # too, so the evaluator's C6 sees that it was checked (rows kept = rows whole; the table is untouched)
@@ -144,7 +166,6 @@ def main(argv=None) -> int:
                     except OSError as e:
                         probs.append(f"{key}: marker not written ({e})")
                 continue
-            full = base / "_full_tables" / f"day{D['day']}" / cage / mouse / conc / t.name
             msg = (f"{n_all} -> {len(kept)} rows (last kept {D['col']} {last:.3f} s, first dropped {first_drop:.3f} s)"
                    if last is not None else f"{n_all} -> {len(kept)} rows")
             if not a.apply:
@@ -152,6 +173,7 @@ def main(argv=None) -> int:
                 continue
             # 2026-11-26 (review): a file held open elsewhere (viewer, Excel, MATLAB, virus scan) must not stop the
             # other tables -> report it and go on (the table stays whole; the next run cuts it)
+            stage = "copy"
             try:
                 whole_sha, whole_size = sha1(t), t.stat().st_size
                 if full.exists():
@@ -167,6 +189,7 @@ def main(argv=None) -> int:
                 tmp = t.with_name(t.name + ".cut_tmp")
                 tmp.write_bytes(head + b"".join(kept))
                 tmp.replace(t)
+                stage = "marker"
                 M = dict(day=D["day"], cage=cage, mouse=mouse, concat_out=conc, time_column=D["col"],
                          seconds=D["seconds"], rows_whole=n_all, rows_kept=len(kept), last_kept_s=last,
                          first_dropped_s=first_drop, whole_table=str(full), whole_size=whole_size, whole_sha1=whole_sha,
@@ -174,8 +197,12 @@ def main(argv=None) -> int:
                          when=datetime.now().isoformat(timespec="seconds"), tool="tools/step02_window.py")
                 mk.write_text(json.dumps(M, indent=1), encoding="utf-8")
             except OSError as e:
-                probs.append(f"{key}: NOT cut ({' '.join(str(e).split())}) - Step 02 would read the whole table; "
-                             "close the program that holds it and run again")
+                if stage == "marker":     # 2026-11-27 (2nd check): the table IS cut; only its marker is missing
+                    probs.append(f"{key}: CUT, but the marker was not written ({' '.join(str(e).split())}) - run "
+                                 "again: the marker is recovered from step02_base/_full_tables")
+                else:
+                    probs.append(f"{key}: NOT cut ({' '.join(str(e).split())}) - Step 02 would read the whole table; "
+                                 "close the program that holds it and run again")
                 continue
             log_rows.append([M["when"], D["day"], cage, mouse, conc, D["col"], D["seconds"], n_all, len(kept),
                              last, first_drop, str(full)])

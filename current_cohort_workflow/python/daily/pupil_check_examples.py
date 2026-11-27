@@ -456,6 +456,26 @@ def none_png(s):
     return S
 
 
+_WINDOW = None
+
+
+def window_days() -> dict:
+    """{day: seconds} of tools/step02_window_days.csv (approved rows; day 13 = 20-min sessions, 2026-11-26): days
+    whose verdicts and tables use the first N s. Read once; missing file = {}."""
+    global _WINDOW
+    if _WINDOW is None:
+        _WINDOW = {}
+        f = T / "step02_window_days.csv"
+        if f.exists():
+            for _, r in pd.read_csv(f, dtype=str, encoding="utf-8-sig").fillna("").iterrows():
+                if str(r.get("approved", "")).strip():
+                    try:
+                        _WINDOW[int(r["day"])] = float(r["seconds"])
+                    except (KeyError, ValueError):
+                        pass
+    return _WINDOW
+
+
 def overview(recs, frames, V, days, out):
     tw, th, cap = 300, 240, 58
     LAB, HEAD = 92, 130             # 92 (was 70): 'day 10' / 'day 11' lost their last digit (review 2026-11-24)
@@ -495,7 +515,10 @@ def overview(recs, frames, V, days, out):
             dr.rectangle([x - 3, y - 3, x + tw + 2, y + th + 2], outline=colr, width=4)
             o = s["nums"]
             op = 100 * o["out_n"] / o["n_frames"] if o.get("n_frames") else o["out_pct"]   # one rounding (11-24)
-            dr.text((x + 2, y + th + 4), (v.upper() if v else "not checked") + f" · out {op:.1f} %",
+            wt = ""
+            if window_days().get(int(d)) == 910.0 and o.get("out_first910s_pct") is not None:
+                op, wt = o["out_first910s_pct"], " (15:10)"    # 2026-11-27: a window day's verdict window (day 13)
+            dr.text((x + 2, y + th + 4), (v.upper() if v else "not checked") + f" · out {op:.1f} %{wt}",
                     fill=colr if vv else (90, 90, 90), font=PES.font(17, True))
             dr.text((x + 2, y + th + 26), f"{o['out_n']:,} of {o['n_frames']:,} frames · median {s['med']:.0f} px",
                     fill=(60, 60, 60), font=PES.font(14))

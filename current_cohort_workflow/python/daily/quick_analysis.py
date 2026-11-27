@@ -391,7 +391,8 @@ def fig_summary(M, out):
                 ax.text(i, v, f"{v:.3g}", ha="center", va="bottom", fontsize=8)
         ax.set_xticks(range(len(m))); ax.set_xticklabels(labs, fontsize=8); ax.set_title(t, fontsize=10)
         ax.grid(axis="y", alpha=0.3)
-    fig.suptitle("session summary - first 15 min 10 s of each session (same time window for every mouse)")
+    fig.suptitle("session summary - first 15 min 10 s of each session (same time window for every mouse; PR = the "
+                 "whole session)")
     fig.tight_layout(); fig.savefig(out / "06_summary_first_15m10s.png", dpi=130); plt.close(fig)
 
 
@@ -734,8 +735,9 @@ def fig_across_days(MD, out):
         ax.set_xlabel("day"); ax.set_title(t); ax.grid(alpha=0.3)
         ax.set_xticks(sorted(MD["day"].dropna().unique()))
     axes[0, 0].legend(fontsize=7, ncol=2)
-    fig.suptitle("across days - first 15 min 10 s of each session (solid = female, dashed = male; lick panels leave "
-                 "out the Passive replay sessions: spout in the mouth; pupil leaves out the whole-eye mice)")
+    fig.suptitle("across days - first 15 min 10 s of each session, PR = the whole session (solid = female, dashed = "
+                 "male; lick panels leave out the Passive replay sessions: spout in the mouth; pupil leaves out the "
+                 "whole-eye mice)")
     fig.tight_layout(); fig.savefig(out / "across_days_metrics.png", dpi=110); plt.close(fig)
 
 
@@ -1061,10 +1063,11 @@ def write_day_summary(path: Path, d, Md: pd.DataFrame, SSd, pupil_notes: dict):
     cols = [c for c in cols if c in Md.columns]
     full = Md[Md["window"] == "full_session"].set_index("mouse")
     lines = [f"DAY {d} SUMMARY  ({len(SSd)} mice)   made {datetime.now():%Y-%m-%d %H:%M}",
-             "All numbers are for the first 15 min 10 s of each session (same window for every mouse).", ""]
+             "All numbers are for the first 15 min 10 s of each session (same window for every mouse); PR "
+             "(pr_breakpoint) = the whole session (user 2026-11-26; day 13 = 20 min).", ""]
     with pd.option_context("display.width", 250, "display.max_columns", 40):
         lines.append(m[cols].round(2).to_string(index=False))
-    lines += ["", "Group means (first 15:10):"]
+    lines += ["", "Group means (first 15:10; PR = the whole session):"]
     for k in ("licks_per_min", "rewards", "licks_per_reward", "pr_breakpoint", "pupil_reward_response_pct"):
         v = stat_rows(m, k)[k].dropna()                        # no replay 'licks', no whole eye (review 2026-11-24)
         if len(v):

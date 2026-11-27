@@ -71,19 +71,41 @@ def whole_minutes(session_dir) -> float | None:
     the last CamTime_rel_s of the whole table named in combined_pupil_digital.window.json. None without a marker
     (every other session, the previous cohort), so those keep the minutes of their own table."""
     import json
-    try:
-        mk = Path(str(session_dir)) / "combined_pupil_digital.window.json"
-        if not mk.exists():
-            return None
-        W = Path(json.loads(mk.read_text(encoding="utf-8"))["whole_table"])
-        head = W.open(encoding="utf-8-sig").readline().strip().split(",")
-        k = head.index("CamTime_rel_s")
-        with W.open("rb") as f:                      # the last line of the whole table
-            f.seek(max(0, W.stat().st_size - 4096))
-            last = [x for x in f.read().decode("utf-8", "replace").splitlines() if x.strip()][-1]
-        return float(last.split(",")[k]) / 60
-    except (OSError, ValueError, KeyError, IndexError):
+    sd = Path(str(session_dir))
+    mk = sd / "combined_pupil_digital.window.json"
+    if not mk.exists():
         return None
+    # 2026-11-27 (2nd check): a marker means the table WAS cut, so never fall back to the cut table's minutes (that
+    # inflates the PR speed): find the whole table also when the project moved (its place next to the dayN folders),
+    # take the last FINITE camera time, else NaN with a warning (the speed is then left empty, not wrong)
+    try:
+        cands = [Path(json.loads(mk.read_text(encoding="utf-8")).get("whole_table", ""))]
+    except (OSError, ValueError):
+        cands = []
+    if len(sd.parents) >= 4:   # BASE/dayN/<cage>/<mouse>/<concat_out> -> BASE/_full_tables/dayN/<cage>/<mouse>/<concat_out>
+        base = sd.parents[3]
+        cands.append(base / "_full_tables" / sd.parents[2].name / sd.parents[1].name / sd.parents[0].name / sd.name /
+                     "combined_pupil_digital.csv")
+    for W in cands:
+        try:
+            if not W.is_file():
+                continue
+            head = W.open(encoding="utf-8-sig").readline().strip().split(",")
+            k = head.index("CamTime_rel_s")
+            with W.open("rb") as f:                  # the last lines of the whole table
+                f.seek(max(0, W.stat().st_size - 65536))
+                tail = [x for x in f.read().decode("utf-8", "replace").splitlines() if x.strip()]
+            for line in reversed(tail[1:] if len(tail) > 1 else tail):
+                try:
+                    v = float(line.split(",")[k])
+                except (ValueError, IndexError):
+                    continue
+                if np.isfinite(v):
+                    return v / 60
+        except (OSError, ValueError):
+            continue
+    print(f"  !! window marker without a readable whole table: {mk} - PR speed of this session left empty")
+    return float("nan")
 
 
 def phase_of(d):

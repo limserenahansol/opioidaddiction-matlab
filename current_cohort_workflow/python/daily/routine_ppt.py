@@ -389,10 +389,14 @@ def pr_slide(prs, blank, days, foot, Tb):
     # 2026-11-22 (day 9): the small second line (passive: the partner's R and PR, user 11-19 "네, 같이 적기"; PR: rewards)
     # was dropped from day 9 on (two = days <= 8); it now stays up to 12 days with smaller text, then 1 line
     two = len(days) <= 12
+    # 2026-11-27 (2nd independent check): the passive cells keep the partner's R + PR line on every day count (the
+    # user's 11-19 rule); only the PR cells' rewards line goes after 12 days. Two-line rows also show the median row's
+    # range line
+    two_p = has_rep
     w0, w1 = 1.6, 0.95
     wd = (12.33 - w0 - w1) / len(days)
     nrow = len(MICE) + 3
-    rh = 0.44 if two else 0.36
+    rh = 0.44 if (two or two_p) else 0.36
     shp = s.shapes.add_table(nrow, len(days) + 2, Inches(0.5), Inches(1.45), Inches(12.33), Inches(0.34 + rh * (nrow - 1)))
     shp.name = "PR table"
     t = shp.table
@@ -428,7 +432,7 @@ def pr_slide(prs, blank, days, foot, Tb):
             elif r.task == "PASSIVE":
                 same = r.replay_match is True or r.replay_match == 1
                 lines = [[(f"P · R {r.rewards_python:.0f}", {})]]
-                if two:
+                if two or two_p:
                     # 2026-11-19 (user: "네, 같이 적기"): the partner's R and PR, so P's R is not read as "PR - 1";
                     # the longest text that fits the column (Calibri 8 pt: about 0.42 em per character, measured on
                     # the LibreOffice render; 0.2 in for the cell margins)
@@ -451,7 +455,8 @@ def pr_slide(prs, blank, days, foot, Tb):
                            else r.task) + flag
                     lines.append([(sub, {"size": small, "color": "9A5B00" if r.session_s > 930 else MUTED})])
                 MS.style_cell(cell, lines, "EEF1F5", size=big, align=PP_ALIGN.CENTER)
-    for k, (lab, fill) in enumerate((("Median (range)", "FFF6DB"), ("Previous cohort (first 15:10)", "F6F7F9"))):
+    for k, (lab, fill) in enumerate((("Median (range)" if (two or two_p) else "Median", "FFF6DB"),
+                                     ("Previous cohort (first 15:10)", "F6F7F9"))):
         i = len(MICE) + 1 + k
         t.rows[i].height = Inches(rh)
         MS.style_cell(t.cell(i, 0), [[(lab, {"bold": True})]], fill, size=9)
@@ -471,7 +476,7 @@ def pr_slide(prs, blank, days, foot, Tb):
                                                             f"{float(g.prev_pr_max.dropna().iloc[0]):.0f}",
                                                             {"size": small, "color": MUTED})]]
                        if len(pm) else "-")
-            MS.style_cell(t.cell(i, j + 2), txt if two or txt == "-" else [txt[0]], fill, size=big,
+            MS.style_cell(t.cell(i, j + 2), txt if (two or two_p) or txt == "-" else [txt[0]], fill, size=big,
                           align=PP_ALIGN.CENTER)
     done = Tb[Tb.task != "missing"]
     n_ok = int(done.rewards_match.astype(bool).sum())
@@ -694,7 +699,7 @@ def pupil_appendix(prs, days, C):
                 pct = 100 * on / nf if on is not None and on == on and nf and nf == nf else r.out_pct.iloc[0]
                 win = ""
                 if QS.WINDOW.get(int(d)) == 910.0 and "out_first910s_pct" in r and pd.notna(r.out_first910s_pct.iloc[0]):
-                    pct, win = r.out_first910s_pct.iloc[0], " of the first 15:10"   # 2026-11-26: the verdict's window
+                    pct, win = r.out_first910s_pct.iloc[0], " (15:10)"   # 2026-11-26: the verdict's window (short)
                 note = f"out {pct:.1f} % of frames{win} · " + note    # one rounding (review 2026-11-24: 4.3 vs 4.4 %)
             if len(note) > 230:                  # the caption box holds 2 lines; the full note is on the picture / csv
                 note = note[:227].rsplit(" ", 1)[0] + " …"
@@ -773,7 +778,10 @@ def build(days, out: Path, pupil_days=None):
             lines.append([("Passive: ", {"bold": True}),
                           (f"{len(pas_n)} replays; rewards = the partner's in {nm}/{len(pas_n)}", {})])
         if len(prd) > 1:
-            lines.append([("vs day %d: " % prd[-2], {"bold": True}), (pr_compare(PRT, N, prd[-2]), {})])
+            # 2026-11-27 (2nd check): a window day's PR covers its whole longer session (user: "it doesn't matter")
+            wnote = "".join(f" (day {d} PR over its whole {int(round(PRT[d].session_s.max() / 60))} min)"
+                            for d in (prd[-2], N) if QS.WINDOW.get(d) and "session_s" in PRT[d])
+            lines.append([("vs day %d: " % prd[-2], {"bold": True}), (pr_compare(PRT, N, prd[-2]) + wnote, {})])
         ref = MS.read_csv(P / "analysis" / "reference" / "prev_cohort_pr_days3to5.csv", comment="#")
         rr = ref[ref["day"] == N]["req_last_910s"].dropna() if len(ref) else pd.Series(dtype=float)
         if len(rr):
@@ -1056,6 +1064,10 @@ def build(days, out: Path, pupil_days=None):
                          (lab, fill, col, True)])
         table(s, 0.5, 1.42, [0.7, 0.45, 5.0, 4.98, 1.2], ["Date", "Day", "Problem", "What was done", "Status"], rows,
               "Routine table", size=9.5)
+        n_days_rows = int(pd.to_numeric(MS.read_csv(DAYS_DIR / "routine_log.csv").day, errors="coerce").isin(days).sum())
+        if n_days_rows > len(RL):   # 2026-11-27 (2nd check): say that older rows were left out
+            MS.add_text(s, 0.5, 6.9, 12.3, 0.22, f"Showing the newest {len(RL)} of {n_days_rows} rows of these days "
+                        "(all rows: analysis\\days\\routine_log.csv)", size=9, color=MUTED, name="Rows note")
     MS.add_footer(s, f"Source: analysis\\days\\routine_log.csv · {foot}")
 
     # ---- 7 where all plots are
@@ -1120,7 +1132,8 @@ def build(days, out: Path, pupil_days=None):
     across = P / "analysis" / "figs_across_days" / "across_days_metrics.png"
     if across.exists():
         MS.image_slide(prs, across, "Basic plots 1 · across days, per mouse",
-                       "First 15 min 10 s of each session · solid = female, dashed = male · PR breakpoint = last "
+                       "First 15 min 10 s of each session (PR: the whole session - day 13 = 20 min) · solid = female, "
+                       "dashed = male · PR breakpoint = last "
                        "requirement · lick panels leave out the Passive replay sessions of days 6-10 (spout in the "
                        "mouth: contacts, not licks) · pupil panel leaves out 9669m black and 9670f black (whole eye, "
                        "eye damage)")
