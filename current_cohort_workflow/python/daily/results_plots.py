@@ -38,8 +38,8 @@ LEAVE_OUT_GRADES = {"whole_eye", "guess", "no_pupil"}
 COLS = ["day", "cage", "mouse", "group", "measure", "value", "source"]
 # (measure, title, y label, note under the panel, y range or None)
 # 2026-11-23 (user: "put all in our routine ppt with licking PR and pupil all together"): PR and licking added in front
-PANELS = [("pr", "PR (last requirement)", "PR = rewards + 1", "active sessions only (passive = yoked, no PR)", None),
-          ("licks_per_min", "Licking", "licks / min", "first 15 min 10 s · passive sessions left out (spout in the mouth)",
+PANELS = [("pr", "PR (last requirement)", "PR = rewards + 1", "Passive replays of days 6-10 left out (yoked)", None),
+          ("licks_per_min", "Licking", "licks / min", "first 15:10 · Passive replays of days 6-10 left out (spout in mouth)",
            None),
           ("pupil_px", "Pupil size", "session median pupil (px)",
            "first 15 min 10 s · whole-eye mice left out (eye damage)", None),

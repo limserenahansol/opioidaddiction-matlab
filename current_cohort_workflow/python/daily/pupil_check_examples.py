@@ -297,6 +297,10 @@ def numbers(s):
     o["worst_minute_out_pct"] = round(100 * max(m.mean() for m in mins), 1)
     k910 = min(n, int(round(910 * FPS)))            # every table and metric uses the first 15 min 10 s
     o["out_first910s_pct"] = round(100 * s["out"][:k910].mean(), 2)
+    # 2026-11-27: the counts and the median of the same first 15:10, so a window day's tile shows one time base
+    o["out_first910s_n"], o["n_first910s"] = int(s["out"][:k910].sum()), int(k910)
+    dd = np.asarray(s.get("d", []), dtype=float)[:k910]
+    o["median_first910s_px"] = round(float(np.nanmedian(dd)), 2) if np.isfinite(dd).any() else np.nan
     if s["kind"] == "eye":
         o.update(held_n=0, jump_n=0, odd_n=0, notfound_n=int(s["notfound"].sum()), offeye_n=int(s["offeye"].sum()))
     else:
@@ -520,7 +524,12 @@ def overview(recs, frames, V, days, out):
                 op, wt = o["out_first910s_pct"], " (15:10)"    # 2026-11-27: a window day's verdict window (day 13)
             dr.text((x + 2, y + th + 4), (v.upper() if v else "not checked") + f" · out {op:.1f} %{wt}",
                     fill=colr if vv else (90, 90, 90), font=PES.font(17, True))
-            dr.text((x + 2, y + th + 26), f"{o['out_n']:,} of {o['n_frames']:,} frames · median {s['med']:.0f} px",
+            if wt and o.get("n_first910s"):     # 2026-11-27: counts + median of the first 15:10 too (one time base)
+                cnt = (f"{o['out_first910s_n']:,} of {o['n_first910s']:,} frames (15:10) · median "
+                       f"{o['median_first910s_px']:.0f} px")
+            else:
+                cnt = f"{o['out_n']:,} of {o['n_frames']:,} frames · median {s['med']:.0f} px"
+            dr.text((x + 2, y + th + 26), cnt,
                     fill=(60, 60, 60), font=PES.font(14))
     dr.text((12, H - 24), "per-session pictures: analysis\\pupil_check\\dayN\\ · numbers: pupil_check_days*.csv · "
                           "tools\\pupil_check_examples.py", fill=(120, 120, 120), font=PES.font(13))
@@ -584,7 +593,7 @@ def main(argv=None):
     tag = f"days{a.days[0]}-{a.days[-1]}" if len(a.days) > 1 else f"day{a.days[0]}"
     T_ = pd.DataFrame(rows)
     for c in ("n_frames", "median_px", "out_n", "out_pct", "worst_minute_out_pct", "out_first910s_pct", "held_n",
-              "jump_n", "odd_n", "notfound_n", "offeye_n"):     # same columns when no session has a pupil yet
+              "jump_n", "odd_n", "notfound_n", "offeye_n", "out_first910s_n", "n_first910s", "median_first910s_px"):     # same columns when no session has a pupil yet
         if c not in T_:
             T_[c] = np.nan
     T_.to_csv(OUT / f"pupil_check_{tag}.csv", index=False, encoding="utf-8-sig")

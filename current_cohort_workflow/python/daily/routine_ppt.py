@@ -871,7 +871,7 @@ def build(days, out: Path, pupil_days=None):
         block("results (pupil, Straub, TI, TST, hot plate)")
         MS.image_slide(prs, rp, "Results so far · PR, licking, pupil, tail immersion, Straub, TST, hot plate",
                        "One line per mouse (Active red, Passive blue) · thick = group median · shaded = morphine days · "
-                       "PR and licking: active sessions only (passive = yoked, spout in the mouth) · pupil = the "
+                       "PR and licking: only the Passive replay sessions of days 6-10 are left out (yoked: no PR of their own, spout in the mouth); on every other day all 8 mice earn and lick · pupil = the "
                        "tables' pupil (whole-eye mice left out) · Straub = automatic v9.1 or your hand score · numbers: "
                        f"analysis\\days\\results_days{days[0]}-{days[-1]}.csv")
     # ---- 2d TST / hot plate / Straub: day 5 (baseline) vs today, on the TST + hot-plate days (added 2026-11-23, user:
