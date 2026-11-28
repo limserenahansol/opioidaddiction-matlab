@@ -188,8 +188,10 @@ def metrics(S: dict, t_max: float) -> dict:
 
 
 def pr_scores(S: dict, t_max: float) -> dict:
-    """PR scores. pr_breakpoint = highest trial (ratio step) reached, 1-based - the lab's official
-    MATLAB Step 10 definition ('max Trial'). Also the last completed requirement and RequirementLast."""
+    """PR scores. pr_breakpoint = highest trial (ratio step) reached, 1-based = RequirementLast = rewards + 1 (the
+    deck's PR). 2026-11-28 (day-14 check D13): it was described as the MATLAB Step 10 'max Trial', but the knowledge
+    base (★9) gives max Trial = rewards, so the figure labels say RequirementLast (rewards + 1). Also the last
+    completed requirement (= rewards) and RequirementLast."""
     out = dict(is_pr=S["is_pr"], pr_breakpoint=np.nan, pr_last_completed_req=np.nan, pr_final_req=np.nan,
                pr_trials_completed=np.nan, pr_last_reward_min=np.nan)
     if not S["is_pr"]:
@@ -444,8 +446,8 @@ def fig_pr(SS, M, out):
     axes[0].set_xlabel("time (min)"); axes[0].set_ylabel("ratio requirement completed")
     axes[0].set_title("PR: requirement completed over time"); axes[0].legend(fontsize=8); axes[0].grid(alpha=0.3)
     m = M[(M["window"] == "full_session") & (M["is_pr"])].reset_index(drop=True)
-    axes[1].bar(range(len(m)), m["pr_breakpoint"], color=[mcol(x) for x in m["mouse"]], label="breakpoint (max trial)")
-    axes[1].plot(range(len(m)), m["pr_last_completed_req"], "kD", label="last completed requirement")
+    axes[1].bar(range(len(m)), m["pr_breakpoint"], color=[mcol(x) for x in m["mouse"]], label="PR = RequirementLast (rewards + 1)")
+    axes[1].plot(range(len(m)), m["pr_last_completed_req"], "kD", label="rewards (last completed requirement)")
     for i, v in enumerate(m["pr_breakpoint"]):
         axes[1].text(i, v, f"{v:g}", ha="center", va="bottom", fontsize=9)
     axes[1].set_xticks(range(len(m)))

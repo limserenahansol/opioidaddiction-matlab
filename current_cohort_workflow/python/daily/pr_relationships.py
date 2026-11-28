@@ -13,7 +13,7 @@ ALL_mice_longitudinal.csv), so the definitions match:
   reward    by day, as ti_table_days.PHASES: natural reward = Baseline 1-5 + Withdrawal 14-16; morphine = Yoked 6-10 +
             Equal Access 11-13 + Re-exposure 17-18
   x = PR    own PR sessions (Active mice from day 3; Passive mice on days 3-5 and from day 11): RequirementLast
-            (= rewards + 1, the deck's PR; on morphine days this is also the dose: drops taken + 1)
+            (= rewards + 1, the deck's PR; on morphine days = drops earned + 1: the drop count is a dose proxy, the dose itself was never measured)
             Passive mice on the Yoked days 6-10 have no PR of their own (the partner's replay delivers the drops):
             x = drops delivered in the analysed session + 1 (= the PR of the replayed partner session, so a pair shares
             x). Current cohort: the routine's PR table (partner_pr; checked = delivered + 1); previous cohort: reward
@@ -548,7 +548,7 @@ def found_text(R: pd.DataFrame, coh: str, max_items: int = 3) -> str:
             other = ("Passive · morphine yoked (delivered + 1)" if r.session_group == "Active · morphine"
                      else "Active · morphine")
             if any((q.measure, q.session_group) == (r.measure, other) for q in its):
-                s += " + same in yoked pair (shared x = dose)"
+                s += " + same in yoked pair (shared x = the same drop count)"
                 used.add((r.measure, other))
         bad = [w for t in ("mouse", "sameday") for p, w in [(r.get(f"loo_{t}_max_p", np.nan),
                                                             r.get(f"loo_{t}_worst", ""))]
@@ -597,7 +597,7 @@ STYLE = {"Active": dict(m="o", c=GCOL["Active"], fill=True, z=4),
          "Passive": dict(m="o", c=GCOL["Passive"], fill=True, z=3),
          "Passive yoked": dict(m="s", c=GCOL["Passive"], fill=False, z=3)}
 ROW_TITLE = {NAT: "NATURAL REWARD days  (Baseline 3-5 · Withdrawal 14-16)",
-             MOR: "MORPHINE days  (Yoked 6-10 · Equal Access 11-13 · Re-exposure 17-18)  ·  PR = drops taken + 1 = dose"}
+             MOR: "MORPHINE days  (Yoked 6-10 · Equal Access 11-13 · Re-exposure 17-18)  ·  PR = drops earned + 1 (drop count = dose proxy; dose not measured)"}
 PANEL_SETS = {NAT: [("Active · natural reward", "Active", "Active"), ("Passive · natural reward", "Passive", "Passive"),
                     ("Both groups · natural reward", "Both", None)],
               MOR: [("Active · morphine", "Active", "Active"), ("Passive · morphine (own PR)", "P own", "Passive"),
@@ -668,7 +668,7 @@ def cohort_figure(D: pd.DataFrame, R: pd.DataFrame, coh: str, out_png: Path, tit
                 n_pts += len(h)
             panel_header(ax, RA, rew, key)
             ax.set_title(label, loc="left", fontsize=10.5, color="#1f3a5f", fontweight="bold", pad=64)
-            ax.set_xlabel("PR (last requirement)" if rew == NAT else "PR = dose  ·  □ drops delivered + 1", fontsize=8.5)
+            ax.set_xlabel("PR (last requirement)" if rew == NAT else "PR = drops earned + 1  ·  □ drops delivered + 1", fontsize=8.5)
             ax.set_ylabel(label, fontsize=8.5)
             ax.tick_params(labelsize=8)
             ax.grid(color="#e4e7eb", lw=0.6)

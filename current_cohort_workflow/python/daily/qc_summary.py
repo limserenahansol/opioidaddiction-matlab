@@ -147,6 +147,9 @@ def decisions():
     for a red QC flag (empty day = every day of that mouse). Missing file = no decisions."""
     out = {}
     for r in CC.read_rows(P / "analysis" / "days" / "qc_decisions.csv", need=("cage", "mouse", "cat", "decision")):
+        # 2026-11-28 (day-14 check U1/U2): a row Claude applied without the user's answer is NOT a user decision
+        if "applied by claude" in str(r.get("source", "")).lower():
+            continue
         day = int(r["day"]) if str(r.get("day", "")).strip() else None
         out.setdefault((r["cage"].strip().lower(), r["mouse"].strip().lower(), r["cat"].strip().lower()), []).append(
             (day, r["decision"].strip(), str(r.get("decided", "")).strip()))

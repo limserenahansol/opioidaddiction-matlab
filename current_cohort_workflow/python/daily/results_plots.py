@@ -173,7 +173,7 @@ def main(argv=None) -> int:
         d = int(g.day.max())
         h = g[g.day == d]
         med = h.groupby("group").value.median()
-        print(f"  {title}: day {d} " + " · ".join(f"{k or 'no group'} median {v:.3g}" for k, v in med.items())
+        print(f"  {title}: day {d} " + " · ".join(f"{(k + ' group') if k else 'no group'} median {v:.3g}" for k, v in med.items())
               + f" (n {len(h)})")
     return 0
 

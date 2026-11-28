@@ -648,11 +648,46 @@ def pupil_check_slides(prs, blank, days, foot):
     return C
 
 
+def phase_of(d):
+    """(phase name, day in the phase, reward) of a day from ti_table_days.PHASES (2026-11-28, day-14 check D12)"""
+    for a, b, name, rew in TI.PHASES:
+        if a <= int(d) <= b:
+            return name, int(d) - a + 1, rew
+    return "", 0, ""
+
+
+def reward_switch(prev, d) -> str:
+    """' (morphine → natural reward)' when the reward changes between two compared days, else ''"""
+    r0, r1 = phase_of(prev)[2], phase_of(d)[2]
+    return f" ({r0} → {r1})" if r0 and r1 and r0 != r1 else ""
+
+
+def intake_text(PRT, N) -> str:
+    """morphine drops EARNED per mouse on the Equal Access days 11-13 (2026-11-28, day-14 check U8, ★11: intake is
+    matched only on days 6-10; from day 11 each mouse earns its own, so later group differences may partly be intake)"""
+    G = TI.groups()
+    tot = {}
+    for d in (11, 12, 13):
+        if d > N or d not in PRT or "rewards_python" not in PRT[d]:
+            continue
+        for r in PRT[d].itertuples():
+            grp = G.get((str(r.cage), str(r.color)), ("", ""))[0]
+            if grp and pd.notna(r.rewards_python):
+                tot.setdefault(grp, {}).setdefault((r.cage, r.color), 0)
+                tot[grp][(r.cage, r.color)] += float(r.rewards_python)
+    parts = [f"{k} group {min(v.values()):.0f}–{max(v.values()):.0f}" for k, v in
+             ((k, tot[k]) for k in ("Active", "Passive") if k in tot)]
+    return " · ".join(parts)
+
+
 def pr_group_medians(X) -> str:
     """'Active 31.5 · Passive 15.5' for one day's PR rows (groups from cohort_manifest.csv; review 2026-11-24)"""
     G = TI.groups()
     g = X.apply(lambda r: G.get((str(r.cage), str(r.color)), ("", ""))[0], axis=1)
-    return " · ".join(f"{k} {X.pr_RL_full[g == k].median():g}" for k in ("Active", "Passive")
+    # 2026-11-28 (day-14 check U4, ★2): 'Active' / 'Passive' are group names; a Passive-group median exists only on
+    # own-PR days (the replay rows of days 6-10 have no PR), so it is the Passive group's own PR
+    lab = {"Active": "Active group", "Passive": "Passive group (own PR)"}
+    return " · ".join(f"{lab[k]} {X.pr_RL_full[g == k].median():g}" for k in ("Active", "Passive")
                       if X.pr_RL_full[g == k].notna().any())
 
 
@@ -781,7 +816,11 @@ def build(days, out: Path, pupil_days=None):
             # 2026-11-27 (2nd check): a window day's PR covers its whole longer session (user: "it doesn't matter")
             wnote = "".join(f" (day {d} PR over its whole {int(round(PRT[d].session_s.max() / 60))} min)"
                             for d in (prd[-2], N) if QS.WINDOW.get(d) and "session_s" in PRT[d])
-            lines.append([("vs day %d: " % prd[-2], {"bold": True}), (pr_compare(PRT, N, prd[-2]) + wnote, {})])
+            lines.append([("vs day %d: " % prd[-2], {"bold": True}),
+                          (pr_compare(PRT, N, prd[-2]) + wnote + reward_switch(prd[-2], N), {})])
+        if N >= 11 and not len(pas_n) and intake_text(PRT, N):
+            lines.append([("Morphine drops earned, days 11–%d: " % min(N, 13), {"bold": True}),
+                          (intake_text(PRT, N) + " (intake is matched only on days 6-10)", {})])
         ref = MS.read_csv(P / "analysis" / "reference" / "prev_cohort_pr_days3to5.csv", comment="#")
         rr = ref[ref["day"] == N]["req_last_910s"].dropna() if len(ref) else pd.Series(dtype=float)
         if len(rr):
@@ -792,7 +831,7 @@ def build(days, out: Path, pupil_days=None):
         lines.append([("Rewards: ", {"bold": True}), (f"median {sub.reward_cmd.median():g}", {})])
     tin = TIt[TIt.day == N] if len(TIt) else TIt
     if len(tin) and tin.latency_s.notna().any():   # 2026-11-20: today's tail immersion in the overview too
-        parts = [f"{grp} {tin[tin.group == grp].latency_s.median():.2f}" for grp in ("Active", "Passive")
+        parts = [f"{grp} group {tin[tin.group == grp].latency_s.median():.2f}" for grp in ("Active", "Passive")
                  if tin[tin.group == grp].latency_s.notna().any()]
         b5 = TIt[TIt.day == TI.FIRST_TI_DAY].latency_s.dropna()
         lines.append([("Tail immersion: ", {"bold": True}),
@@ -811,7 +850,10 @@ def build(days, out: Path, pupil_days=None):
         lines.append([("Evaluator: ", {"bold": True}),
                       (f"{c.get('FAIL', 0)} FAIL · {c.get('WARN', 0)} look · {c.get('PASS', 0)} ok"
                        + (f" · {c.get('INFO', 0)} info" if c.get("INFO", 0) else "") + " (independent re-read)", {})])
-    box(s, 0.5, 2.8, 6.1, 3.0, f"Today (day {N})", lines, NAVY, "Today box")
+    ph, pd_, rw = phase_of(N)
+    # 2026-11-28: the phase line and the intake line make the box longer - a smaller font keeps it inside the card
+    box(s, 0.5, 2.8, 6.1, 3.0, f"Today (day {N}" + (f" · {ph} day {pd_} · {rw})" if ph else ")"), lines, NAVY, "Today box",
+        size=12 if len(lines) <= 6 else 11)
     dec = []
     for cat in ("off_eye", "open_issue", "rewards", "frames_open", "no_video_open", "lick_unknown", "check_open",
                 "pupil_open"):
@@ -1066,7 +1108,7 @@ def build(days, out: Path, pupil_days=None):
               "Routine table", size=9.5)
         n_days_rows = int(pd.to_numeric(MS.read_csv(DAYS_DIR / "routine_log.csv").day, errors="coerce").isin(days).sum())
         if n_days_rows > len(RL):   # 2026-11-27 (2nd check): say that older rows were left out
-            MS.add_text(s, 0.5, 6.9, 12.3, 0.22, f"Showing the newest {len(RL)} of {n_days_rows} rows of these days "
+            MS.add_text(s, 0.5, 6.72, 12.3, 0.22, f"Showing the newest {len(RL)} of {n_days_rows} rows of these days "
                         "(all rows: analysis\\days\\routine_log.csv)", size=9, color=MUTED, name="Rows note")
     MS.add_footer(s, f"Source: analysis\\days\\routine_log.csv · {foot}")
 
@@ -1141,12 +1183,16 @@ def build(days, out: Path, pupil_days=None):
         note = ""
         if N in prd and len(prd) > 1:
             gm = pr_group_medians(PRT[N])
+            # 2026-11-28 (day-14 check D04, D12, D08): the window note, the reward switch and the line type, as slide 1
+            wn = "".join(f" (day {d} PR over its whole {int(round(PRT[d].session_s.max() / 60))} min)"
+                         for d in (prd[-2], N) if QS.WINDOW.get(d) and "session_s" in PRT[d])
             note = (f"day {N} PR median: {(gm or format(PRT[N].pr_RL_full.median(), 'g')).replace(' · ', ', ')} · "
-                    f"vs day {prd[-2]}: {pr_compare(PRT, N, prd[-2], with_new=False)} · ")
+                    f"vs day {prd[-2]}: {pr_compare(PRT, N, prd[-2], with_new=False)}{wn}{reward_switch(prd[-2], N)} · "
+                    "PR01: thick black line = group mean · ")
         man = MS.read_csv(P / "cohort_manifest.csv")
         grp_set = len(man) and "group" in man.columns and man.group.astype(str).str.strip().isin(
             ["Active", "Passive"]).any()
-        gtxt = ("Active / Passive = the groups in cohort_manifest.csv (your pairs 11-16, groups 11-18) · " if grp_set
+        gtxt = ("Active / Passive = the groups in cohort_manifest.csv (your pairs 11-16, the 9669m pairs changed 11-19 = day 6; groups 11-18) · " if grp_set
                 else "groups are not set yet, so every mouse shows as 'Active' · ")
         MS.image_slide(prs, cfd / "PR01_daily_PR_spaghetti.png", "Basic plots 2 · PR per day (previous cohort's PR01)",
                        note + gtxt + f"from Step 02 {rn}")
@@ -1157,8 +1203,8 @@ def build(days, out: Path, pupil_days=None):
                     size=22, color=NAVY, bold=True, name="Title")
         exm = re.search(r"excl([0-9-]+)", cfd.name)
         exs = exm.group(1).replace("-", ", ") if exm else "none"
-        MS.add_text(s, 0.5, 0.78, 12.33, 0.34, "Previous cohort's figures by phase (Baseline 3-5, Yoked 6-10, Equal Access "
-                    "11-13) · TJ02: all days (as the previous cohort's step08), mean ± SEM over trials · PU06: days "
+        phl = ", ".join(["Baseline 3-5"] + [f"{name} {a}-{b}" for a, b, name, rew in TI.PHASES[1:] if a <= N])
+        MS.add_text(s, 0.5, 0.78, 12.33, 0.34, f"Previous cohort's figures by phase ({phl}; so far day {N}) · TJ02: all days (as the previous cohort's step08), mean ± SEM over trials · PU06: days "
                     f"{exs} left out (folder {cfd.name}; a phase's panel appears once it has a day that is not left "
                     "out), mean ± SEM over mice, without the 2 whole-eye mice", size=10.5, color=MUTED, name="Caption")
         if tj.exists():

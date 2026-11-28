@@ -107,14 +107,20 @@ def gap_xy(x, y, break_gaps=True):
 def draw_plot(ax, Tb, days, break_gaps=False):
     """break_gaps (2026-11-24 review): no line across missing days (results PR / licks: Passive Yoked days)"""
     import matplotlib.pyplot as plt  # noqa: F401  (the caller set the backend)
+    drawn = 0
     for a, b, name, rew in PHASES:
         lo, hi = max(a, days[0]) - 0.5, min(b, days[-1]) + 0.5
         if lo >= hi:
             continue
         if rew == "morphine":
             ax.axvspan(lo, hi, color="#fdf0e2", zorder=0)
-        ax.text((lo + hi) / 2, 1.01, name, transform=ax.get_xaxis_transform(), ha="center", va="bottom",
-                fontsize=8, color="#7b8794")
+        # 2026-11-28 (day-14 check D06): a phase that shows only 1-2 days AFTER another phase (e.g. Withdrawal on day
+        # 14) is written a line higher, so it does not run into the label before it (the first phase stays down,
+        # away from the plot title)
+        lift = hi - lo < 2.6 and drawn > 0
+        ax.text((lo + hi) / 2, 1.075 if lift else 1.01, name, transform=ax.get_xaxis_transform(),
+                ha="center", va="bottom", fontsize=8, color="#7b8794")
+        drawn += 1
     ends = []                                       # (last day, last latency, label, colour) of every mouse
     for c, m in MICE:
         g = Tb[(Tb.cage == c) & (Tb.mouse == m)].sort_values("day")
@@ -124,12 +130,22 @@ def draw_plot(ax, Tb, days, break_gaps=False):
         col = GCOL.get(g.group.iloc[0], "#7b8794")
         ax.plot(*gap_xy(g.day, g.latency_s, break_gaps), "-o", color=col, alpha=0.4, lw=1.1, ms=3.5, zorder=2)
         ends.append([int(g.day.iloc[-1]), float(g.latency_s.iloc[-1]), f"{c[-1]}{m}", col])
-    gap = 0.045 * max([e[1] for e in ends] + [1.0])  # labels at the same day are kept this far apart (in s)
+    # 2026-11-28 (day-14 check D06): the gap is a share of the whole y range (all days), not of today's values - on
+    # day 14 all 8 latencies were 0.8-1.44 s and 6 of the 8 labels sat on top of each other
+    yv = pd.to_numeric(Tb.latency_s, errors="coerce")
+    gap = 0.052 * max(float(yv.max()) if yv.notna().any() else 1.0, 1.0)
     for d in sorted({e[0] for e in ends}):
         L = sorted((e for e in ends if e[0] == d), key=lambda e: e[1])
+        y0 = [e[1] for e in L]
         for k in range(1, len(L)):
             L[k][1] = max(L[k][1], L[k - 1][1] + gap)
-        for x, y, lab, col in L:
+        shift = (sum(e[1] for e in L) - sum(y0)) / len(L)          # centre the stack on the points ...
+        shift = min(shift, max(0.0, L[0][1] - gap / 2))              # ... but keep the lowest label above 0 s
+        for e in L:
+            e[1] -= shift
+        for (x, y, lab, col), yp in zip(L, y0):
+            if abs(y - yp) > gap / 3:                                # moved label: a thin line to its point
+                ax.plot([x + 0.02, x + 0.07], [yp, y], color=col, lw=0.5, alpha=0.6, zorder=4)
             ax.text(x + 0.08, y, lab, fontsize=6.5, color=col, va="center", zorder=4,
                     bbox=dict(boxstyle="square,pad=0.05", facecolor="white", edgecolor="none", alpha=0.75))
     for grp, col in GCOL.items():
